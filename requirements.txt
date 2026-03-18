@@ -1,0 +1,7 @@
+numpy>=2.4.3,<3
+scipy>=1.17.1,<2
+opencv-contrib-python>=4.13.0.92,<5
+pycolmap>=4.0.2,<5
+open3d>=0.19.0,<1
+
+matplotlib>=3.10.8,<4
