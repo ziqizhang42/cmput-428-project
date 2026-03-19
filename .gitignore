@@ -1,4 +1,7 @@
 .venv/
 __pycache__/
 
+workspace/*
+!workspace/.gitkeep
+
 .DS_Store
