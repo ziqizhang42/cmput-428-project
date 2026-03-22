@@ -166,7 +166,7 @@ def _estimate_normals(points_xyz: np.ndarray, point_obs: list[list[int]], view_d
         normals[i] = acc / norm if norm > 1e-8 else np.array([0.0, 0.0, 1.0])
     return normals
 
-def parse_reconsturction(recon: pycolmap.Reconstruction, image_dir: Path, max_reproj_error, min_track_length) -> SfMResult:
+def parse_reconstruction(recon: pycolmap.Reconstruction, image_dir: Path, max_reproj_error, min_track_length) -> SfMResult:
     """Convert a pycolmap reconstruction proper structures"""
     if recon.num_cameras() != 1:
         raise RuntimeError(f"Expected exactly 1 camera model, but got {recon.num_cameras()}")
@@ -198,7 +198,7 @@ def parse_reconsturction(recon: pycolmap.Reconstruction, image_dir: Path, max_re
             P=pose.projection_matrix(K),
         ))
 
-        view_dirs[image_id] = image.viewing_direction()
+        view_dirs[image_id] = np.asarray(image.viewing_direction()).ravel()
 
     _assign_frame_indices(keyframes)
 
@@ -248,7 +248,7 @@ def run_sfm(image_dir: str | Path, workspace_dir: str | Path = "workspace", max_
         raise FileNotFoundError(f"No images found in {image_dir}")
 
     recon, undist_image_dir = run_colmap(image_dir, workspace)
-    return parse_reconsturction(recon, undist_image_dir, max_reproj_error, min_track_length)
+    return parse_reconstruction(recon, undist_image_dir, max_reproj_error, min_track_length)
 
 if __name__ == "__main__":
     logging.basicConfig(
@@ -256,7 +256,7 @@ if __name__ == "__main__":
         level=logging.DEBUG,
     )
     if len(sys.argv) < 2:
-        logger.error("Usage: python sfm.py <image_dir>")
+        logger.error("Usage: python s1_sfm.py <image_dir>")
         sys.exit(1)
     result = run_sfm(sys.argv[1])
     logger.info(f"{len(result.keyframes)} keyframes, {len(result.sparse_points)} 3D points")
