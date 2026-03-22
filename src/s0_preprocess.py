@@ -52,7 +52,7 @@ if __name__ == "__main__":
     )
 
     if len(sys.argv) < 2:
-        logger.error("Usage: python preprocess.py <video_path> [frame_step] [output_dir]")
+        logger.error("Usage: python s0_preprocess.py <video_path> [frame_step] [output_dir]")
         sys.exit(1)
 
     video_path = sys.argv[1]
