@@ -8,15 +8,17 @@ import numpy as np
 import pycolmap
 import sys
 import logging
+import open3d as o3d
 from pathlib import Path
 
+from depth_denoise import denoise_depth_map_tvl1
 from opticFlow import tv_l1
 from s0_bundle_selection import select_bundles, save_bundles
 from s1_sfm import parse_reconstruction
-from s2_base_mesh import build_base_mesh, render_depth, smooth_depth
+from s2_base_mesh import BaseMesh, build_base_mesh, render_depth, smooth_depth
 from s3_view_prediction import get_view_prediction
 from s4_sceneFlow import constrained_scene_flow
-from s5_integration import GlobalModel, integrate_bundle, export_ply
+from s5_integration import GlobalModel, integrate_bundle, export_ply, triangulate_depth_map
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +40,7 @@ def load_grayscale(path: Path) -> np.ndarray:
         raise FileNotFoundError(f"Could not load image: {path}")
     return img.astype(np.float64) / 255.0
 
-def process_bundle(bundle, camera, surface):
+def process_bundle(bundle, camera, mesh):
     """Stages 3-4 for one bundle: view prediction -> flow -> scene flow."""
     ref = bundle.reference
     comps = bundle.comparisons
@@ -46,40 +48,55 @@ def process_bundle(bundle, camera, surface):
     img_ref = load_grayscale(ref.image_path)
     imgs_comp = [load_grayscale(c.image_path) for c in comps]
 
-    # Initial depth from base surface
-    depth = render_depth(surface, ref.pose, camera)
+    # Initial depth from base mesh
+    depth = render_depth(mesh, ref.pose, camera)
     depth = smooth_depth(depth, sigma=SIGMA)
 
     if np.sum(depth > 0) == 0:
         logger.warning(f"Warning: no depth for {ref.image_name}, skipping")
         return depth
 
-    tvl1 = cv2.optflow.DualTVL1OpticalFlow_create()
-    
+    # Current mesh for view prediction (starts as base mesh)
+    current_mesh = mesh
+
     for it in range(N_ITERATIONS):
         flows = []
         for comp_kf, img_comp in zip(comps, imgs_comp):
-            # Predict the view based on the CURRENT (denoised) depth estimate
-            predicted = get_view_prediction(img_ref, depth, ref.pose, comp_kf.pose, camera)
-            
+            # Render current mesh from comparision viewpoint (Section 2.5.2)
+            depth_comp = render_depth(current_mesh, comp_kf.pose, camera)
+            predicted = get_view_prediction(img_ref, depth_comp, ref.pose, comp_kf.pose, camera)
+
             # Calculate optical flow
-            flow = tvl1.calc(predicted, img_comp, None)
-            flows.append(flow.astype(np.float32))
+            u1, u2 = tv_l1(predicted, img_comp)
+            flows.append(np.stack([u1, u2], axis=-1).astype(np.float32))
 
         comp_poses = [c.pose for c in comps]
-        
+
         for s_it in range(SCENE_ITERATIONS):
             # Update 3D points based on the optical flow data
             depth = constrained_scene_flow(depth, ref.pose, camera, comp_poses, flows).astype(np.float64)
-            
             logger.debug(f"Scene Flow Sub-Iteration {s_it + 1}/{SCENE_ITERATIONS}")
 
-        # We take the noisy result of the scene flow updates and smooth it
-        # before it is used for the next iteration's view prediction.
+        # Denoise before next iteration's view prediction
         logger.info(f"Applying TV-L1 depth map denoising...")
-        depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=10.0, beta=1.0,lambda_data=1.0, num_iters=100)
+        depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_iters=100)
 
         logger.info(f"Iteration {it + 1}/{N_ITERATIONS}: {np.sum(depth > 0)} valid pixels after denoising")
+
+        # Retriangulate depth into mesh for next iteration's view prediction (Section 2.5.2)
+        if it < N_ITERATIONS - 1:
+            local_mesh = triangulate_depth_map(depth, ref.pose, camera)
+            scene = o3d.t.geometry.RaycastingScene()
+            mesh_t = o3d.t.geometry.TriangleMesh()
+            mesh_t.vertex.positions = o3d.core.Tensor(local_mesh.vertices.astype(np.float32))
+            mesh_t.triangle.indices = o3d.core.Tensor(local_mesh.faces.astype(np.int32))
+            scene.add_triangles(mesh_t)
+            current_mesh = BaseMesh(
+                vertices=local_mesh.vertices,
+                faces=local_mesh.faces,
+                normals=local_mesh.normals,
+                _scene=scene,
+            )
 
     return depth
 
