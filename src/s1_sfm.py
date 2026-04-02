@@ -166,7 +166,7 @@ def _estimate_normals(points_xyz: np.ndarray, point_obs: list[list[int]], view_d
         normals[i] = acc / norm if norm > 1e-8 else np.array([0.0, 0.0, 1.0])
     return normals
 
-def parse_reconstruction(recon: pycolmap.Reconstruction, image_dir: Path, max_reproj_error, min_track_length) -> SfMResult:
+def parse_reconstruction(recon: pycolmap.Reconstruction, image_dir: Path, max_reproj_error=4.0, min_track_length=3) -> SfMResult:
     """Convert a pycolmap reconstruction proper structures"""
     if recon.num_cameras() != 1:
         raise RuntimeError(f"Expected exactly 1 camera model, but got {recon.num_cameras()}")

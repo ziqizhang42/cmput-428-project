@@ -202,6 +202,15 @@ def integrate_bundle(depth: np.ndarray, pose_ref: Pose, camera: CameraModel, glo
         mesh = filter_by_error(mesh, E_s, E_v)
     return fuse_into_global(global_model, mesh, pose_ref, camera, dist_threshold)
 
+def export_ply(global_model: GlobalModel, path: str) -> None:
+    """Save the global model as a PLY file."""
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(global_model.vertices)
+    mesh.triangles = o3d.utility.Vector3iVector(global_model.faces)
+    mesh.vertex_normals = o3d.utility.Vector3dVector(global_model.normals)
+    o3d.io.write_triangle_mesh(path, mesh)
+    logger.info(f"Exported {path}: {len(global_model.vertices)} vertices, {len(global_model.faces)} faces")
+
 if __name__ == "__main__":
     logging.basicConfig(
         format="[%(filename)s:%(lineno)d:%(funcName)s] %(message)s",
