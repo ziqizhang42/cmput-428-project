@@ -1,9 +1,9 @@
 import numpy as np
 import cv2
 
-MAX_WARPS = 35
-MAX_OUTER_ITERATIONS = 5
-MAX_INNER_ITERATIONS = 1
+MAX_WARPS = 5
+MAX_OUTER_ITERATIONS = 10
+MAX_INNER_ITERATIONS = 30
 MAX_LEVEL = 5
 
 def tv_l1(image0, image1):
@@ -22,7 +22,7 @@ def tv_l1(image0, image1):
     # parameters for theta and lambda (taken from paper may need tuning)
     theta = 0.25
     lambda_ = 30
-    time_step = 0.25
+    time_step = 0.1
 
     for level in reversed(range(len(I0_pyramid))):
         I0 = I0_pyramid[level]
@@ -221,8 +221,7 @@ def warp_image(I1, u1, u2):
     # This should follow the "bicubic lookup" described in the paper
     I1_warped = cv2.remap(I1, warped_x, warped_y,
                       interpolation=cv2.INTER_CUBIC,
-                      borderMode=cv2.BORDER_CONSTANT,
-                      borderValue=0)
+                      borderMode=cv2.BORDER_CONSTANT)
 
     return I1_warped
 

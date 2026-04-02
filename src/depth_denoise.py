@@ -62,7 +62,7 @@ def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_
         # lambda_data controls the trade-off between the data term and smoothing
         D_prime = D + np.clip(v - D, -tau * lambda_data, tau * lambda_data)
         
-        # --- Over-relaxation ---
+        # Over-relaxation
         D_bar = D_prime + theta * (D_prime - D_old)
         
     return D_prime

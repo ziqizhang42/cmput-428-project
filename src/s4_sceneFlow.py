@@ -11,7 +11,7 @@ def constrained_scene_flow(depth_ref, pose_ref, camera_model, comp_poses, comp_f
         a list of poses for the comparison cameras, and a list containing the optic flow for each
         of said images """
 
-    # Get the Neccesarry info
+    # Get the Neccesary info
     h, w = depth_ref.shape
     K = camera_model.K
     K_inv = np.linalg.inv(K)
