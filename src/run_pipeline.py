@@ -3,8 +3,6 @@ Runs Dense Reconstruction Pipeline
 Assumes s1_sfm.py has already been run (workspace/dense/ exists).
 """
 
-from weakref import ref
-
 import cv2
 import numpy as np
 import pycolmap
@@ -12,11 +10,11 @@ import sys
 import logging
 from pathlib import Path
 
+from opticFlow import tv_l1
+from s0_bundle_selection import select_bundles, save_bundles
 from s1_sfm import parse_reconstruction
 from s2_base_mesh import build_base_mesh, render_depth, smooth_depth
-from s0_bundle_selection import select_bundles
 from s3_view_prediction import get_view_prediction
-from opticFlow import tv_l1
 from s4_sceneFlow import constrained_scene_flow
 from s5_integration import GlobalModel, integrate_bundle, export_ply
 
@@ -100,7 +98,10 @@ if __name__ == "__main__":
     if not bundles:
         logger.warning("No bundles selected - check settings")
         sys.exit(1)
-    
+
+    bundle_path = workspace / "bundles.json"
+    save_bundles(bundles, bundle_path)
+
     logger.info(f"[4/5] Processing {len(bundles)} bundles...")
     global_model = GlobalModel()
 
@@ -110,8 +111,8 @@ if __name__ == "__main__":
         depth = process_bundle(bundle, sfm_result.camera_model, mesh)
 
         # TODO: need E_s and E_v
-        global_model = integrate_bundle(depth, bundle.reference.pose, sfm_result.camera, global_model, dist_threshold=DIST_THRESHOLD)
-    
+        global_model = integrate_bundle(depth, bundle.reference.pose, sfm_result.camera_model, global_model, E_s, E_v, dist_threshold=DIST_THRESHOLD)
+
     logger.info(f"[5/5] Saving final model to {OUTPUT_PATH}...")
     export_ply(global_model, OUTPUT_PATH)
     logger.info(f"Done, {len(global_model.vertices)} vertices")

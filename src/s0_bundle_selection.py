@@ -4,6 +4,8 @@ Camera Bundle Selection (Section 2.7)
 
 import numpy as np
 import logging
+import json
+from pathlib import Path
 from dataclasses import dataclass
 
 from s1_sfm import SfMResult, CameraModel, Pose, Keyframe
@@ -196,6 +198,57 @@ def select_bundles(sfm_result: SfMResult, mesh: BaseMesh, n_comparisons: int = 3
         bundles.append(bundle)
 
     logger.info(f"Created {len(bundles)} bundles ({n_comparisons} comparisons each)")
+    return bundles
+
+def _serialize_keyframe(kf: Keyframe) -> dict:
+    return {
+        "image_id": kf.image_id,
+        "frame_index": kf.frame_index,
+        "image_name": kf.image_name,
+        "image_path": str(kf.image_path),
+        "R": kf.pose.R.tolist(),
+        "t": kf.pose.t.tolist(),
+    }
+
+def save_bundles(bundles: list[Bundle], path: str | Path) -> None:
+    data = []
+    for b in bundles:
+        data.append({
+            "reference": _serialize_keyframe(b.reference),
+            "comparisons": [_serialize_keyframe(c) for c in b.comparisons],
+        })
+    with open(path, "w") as f:
+        json.dump(data, f, indent=4)
+    logging.info(f"Saved {len(bundles)} bundles to {path}")
+
+def load_bundles(path: str | Path, keyframes: list[Keyframe]) -> list[Bundle]:
+    with open(path) as f:
+        data = json.load(f)
+    kf_map = {kf.image_id: kf for kf in keyframes} if keyframes else None
+
+    def _deserialize(entry: dict) -> Keyframe:
+        if kf_map and entry["image_id"] in kf_map:
+            return kf_map[entry["image_id"]]
+        R = np.array(entry["R"])
+        t = np.array(entry["t"])
+        pose = Pose(R=R, t=t)
+        return Keyframe(
+            image_id=entry["image_id"],
+            frame_index=entry["frame_index"],
+            image_name=entry["image_name"],
+            image_path=str(entry["image_path"]),
+            pose=pose,
+            P=pose.projection_matrix(np.eye(3)),
+        )
+    
+    bundles = []
+    for entry in data:
+        ref = _deserialize(entry["reference"])
+        comps = [_deserialize(c) for c in entry["comparisons"]]
+        if comps:
+            bundles.append(Bundle(reference=ref, comparisons=comps))
+
+    logging.info(f"Loaded {len(bundles)} bundles from {path}")
     return bundles
 
 if __name__ == "__main__":
