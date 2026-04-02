@@ -144,7 +144,7 @@ if __name__ == "__main__":
         depth = process_bundle(bundle, sfm_result.camera_model, mesh)
 
         # TODO: need E_s and E_v
-        global_model = integrate_bundle(depth, bundle.reference.pose, sfm_result.camera_model, global_model, E_s, E_v, dist_threshold=DIST_THRESHOLD)
+        global_model = integrate_bundle(depth, bundle.reference.pose, sfm_result.camera_model, global_model, dist_threshold=DIST_THRESHOLD)
 
     logger.info(f"[5/5] Saving final model to {OUTPUT_PATH}...")
     export_ply(global_model, OUTPUT_PATH)

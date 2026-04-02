@@ -110,11 +110,14 @@ def tv_l1(image0, image1):
         u1 = cv2.medianBlur(u1.astype(np.float32), 5).astype(np.float64)
         u2 = cv2.medianBlur(u2.astype(np.float32), 5).astype(np.float64)
 
-        # Perfor prolongation
+        # Perform prolongation
         if level > 0:
-            # upscale flow field
-            u1 = prolong_flow(u1)
-            u2 = prolong_flow(u2)
+            # Target size is the next finer pyramid level
+            target_h, target_w = I0_pyramid[level - 1].shape
+
+            # upscale flow field and crop to match next level
+            u1 = prolong_flow(u1)[:target_h, :target_w]
+            u2 = prolong_flow(u2)[:target_h, :target_w]
 
             # upscale dual variable
             zero_border(p1x)
@@ -122,10 +125,10 @@ def tv_l1(image0, image1):
             zero_border(p2x)
             zero_border(p2y)
 
-            p1x = prolong_image(p1x)
-            p1y = prolong_image(p1y)
-            p2x = prolong_image(p2x)
-            p2y = prolong_image(p2y)
+            p1x = prolong_image(p1x)[:target_h, :target_w]
+            p1y = prolong_image(p1y)[:target_h, :target_w]
+            p2x = prolong_image(p2x)[:target_h, :target_w]
+            p2y = prolong_image(p2y)[:target_h, :target_w]
 
     return u1, u2
 

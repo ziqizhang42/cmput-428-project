@@ -5,8 +5,9 @@ def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_
     """ Minimizes the g-weighted TV-L1 """
 
     # Compute spatial gradients
-    Ix = cv2.Sobel(I_ref, cv2.CV_32F, 1, 0, ksize=3)
-    Iy = cv2.Sobel(I_ref, cv2.CV_32F, 0, 1, ksize=3)
+    I_ref_f32 = I_ref.astype(np.float32)
+    Ix = cv2.Sobel(I_ref_f32, cv2.CV_32F, 1, 0, ksize=3)
+    Iy = cv2.Sobel(I_ref_f32, cv2.CV_32F, 0, 1, ksize=3)
     grad_mag = np.sqrt(Ix**2 + Iy**2)
     
     # Want Gradient Magitude Between 0 & 1 (so that weight works correctly)
@@ -51,7 +52,7 @@ def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_
         
         div_p[1:-1, :] += py[1:-1, :] - py[:-2, :]
         div_p[0, :] += py[0, :]
-        div_p[-1, :] += -py[:-2, :]
+        div_p[-1, :] += -py[-2, :]
         
         D_old = D_prime.copy()
         

@@ -195,7 +195,7 @@ def fuse_into_global(global_model: GlobalModel, new_mesh: TriangulatedMesh, pose
     return GlobalModel(vertices=new_global_verts, faces=new_global_faces, normals=new_global_normals)
 
 def integrate_bundle(depth: np.ndarray, pose_ref: Pose, camera: CameraModel, global_model: GlobalModel,
-                     E_s: np.ndarray, E_v: np.ndarray, dist_threshold: float = 0.01) -> GlobalModel:
+                     E_s: np.ndarray | None = None, E_v: np.ndarray | None = None, dist_threshold: float = 0.01) -> GlobalModel:
     """Full stage 5 for one bundle: triangulate, filter, fuse"""
     mesh = triangulate_depth_map(depth, pose_ref, camera)
     if E_s is not None and E_v is not None:

@@ -27,7 +27,7 @@ def constrained_scene_flow(depth_ref, pose_ref, camera_model, comp_poses, comp_f
     rays_cam = (K_inv @ pixels_coords).T
 
     # Get initial 3D world points x_j (Equation 3)
-    cam_coords_ref = rays_cam * depth_ref.flatten()
+    cam_coords_ref = rays_cam * depth_ref.flatten()[:, None]
     world_points = pose_ref.camera_to_world(cam_coords_ref)
     
     # Rotate rays to world frame. 
