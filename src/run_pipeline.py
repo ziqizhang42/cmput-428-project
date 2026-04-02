@@ -20,8 +20,10 @@ from s5_integration import GlobalModel, integrate_bundle, export_ply
 
 logger = logging.getLogger(__name__)
 
-N_COMPARISONS = 3 # comparison frames per bundle
-N_ITERATIONS = 2 # scene flow iterations per bundle (Section 2.5.3)
+N_COMPARISONS = 4 # comparison frames per bundle (Section 3)
+SCENE_ITERATIONS = 3 # Number of scene flow iterations (2.4.2)
+N_ITERATIONS = 2 # Total iterations for vertex updates (Section 2.5.3)
+
 POISSON_DEPTH = 8 # base surface resolution
 SIGMA = 1.0 # depth smoothing sigma
 OVERLAP_THRESH = 0.3 # V_r for reference selection (Section 2.7)
@@ -51,19 +53,33 @@ def process_bundle(bundle, camera, surface):
     if np.sum(depth > 0) == 0:
         logger.warning(f"Warning: no depth for {ref.image_name}, skipping")
         return depth
+
+    tvl1 = cv2.optflow.DualTVL1OpticalFlow_create()
     
     for it in range(N_ITERATIONS):
-        # For each comparison: predict view, compute optical flow
         flows = []
         for comp_kf, img_comp in zip(comps, imgs_comp):
+            # Predict the view based on the CURRENT (denoised) depth estimate
             predicted = get_view_prediction(img_ref, depth, ref.pose, comp_kf.pose, camera)
-            u1, u2 = tv_l1(predicted, img_comp)
-            flows.append(np.stack([u1, u2], axis=-1).astype(np.float32))
+            
+            # Calculate optical flow
+            flow = tvl1.calc(predicted, img_comp, None)
+            flows.append(flow.astype(np.float32))
 
-        # Scene flow update
         comp_poses = [c.pose for c in comps]
-        depth = constrained_scene_flow(depth, ref.pose, camera, comp_poses, flows).astype(np.float64)
-        logger.info(f"Iteration {it + 1}/{N_ITERATIONS}: {np.sum(depth > 0)} valid pixels")
+        
+        for s_it in range(SCENE_ITERATIONS):
+            # Update 3D points based on the optical flow data
+            depth = constrained_scene_flow(depth, ref.pose, camera, comp_poses, flows).astype(np.float64)
+            
+            logger.debug(f"Scene Flow Sub-Iteration {s_it + 1}/{SCENE_ITERATIONS}")
+
+        # We take the noisy result of the scene flow updates and smooth it
+        # before it is used for the next iteration's view prediction.
+        logger.info(f"Applying TV-L1 depth map denoising...")
+        depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=10.0, beta=1.0,lambda_data=1.0, num_iters=100)
+
+        logger.info(f"Iteration {it + 1}/{N_ITERATIONS}: {np.sum(depth > 0)} valid pixels after denoising")
 
     return depth
 
