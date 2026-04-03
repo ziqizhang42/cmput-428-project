@@ -23,7 +23,6 @@ from s5_integration import GlobalModel, integrate_bundle, export_ply, triangulat
 logger = logging.getLogger(__name__)
 
 N_COMPARISONS = 4 # comparison frames per bundle (Section 3)
-SCENE_ITERATIONS = 3 # Number of scene flow iterations (2.4.2)
 N_ITERATIONS = 2 # Total iterations for vertex updates (Section 2.5.3)
 
 POISSON_DEPTH = 8 # base surface resolution
@@ -128,10 +127,8 @@ def process_bundle(bundle, camera, mesh, bundle_idx: int):
 
         comp_poses = [c.pose for c in comps]
 
-        for s_it in range(SCENE_ITERATIONS):
-            depth = constrained_scene_flow(depth, ref.pose, camera, comp_poses, flows).astype(np.float64)
-            save_depth_vis(depth, it_dir / f"depth_sceneflow_{s_it}.png", f"sceneflow {s_it}")
-            logger.debug(f"Scene Flow Sub-Iteration {s_it + 1}/{SCENE_ITERATIONS}")
+        depth = constrained_scene_flow(depth, ref.pose, camera, comp_poses, flows).astype(np.float64)
+        save_depth_vis(depth, it_dir / "depth_sceneflow.png", "sceneflow")
 
         # Denoise before next iteration's view prediction
         logger.info(f"Applying TV-L1 depth map denoising...")

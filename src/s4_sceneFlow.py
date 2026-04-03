@@ -26,16 +26,17 @@ def constrained_scene_flow(depth_ref, pose_ref, camera_model, comp_poses, comp_f
     # Back-project pixels to rays in camera frame
     rays_cam = (K_inv @ pixels_coords).T
 
-    # Get initial 3D world points x_j (Equation 3)
-    cam_coords_ref = rays_cam * depth_ref.flatten()[:, None]
-    world_points = pose_ref.camera_to_world(cam_coords_ref)
-    
-    # Rotate rays to world frame. 
+    # Rotate rays to world frame
     rays_world = (pose_ref.R.T @ rays_cam.T).T  # (N, 3)
-    
+
     # Get ray lines w/ unit vector direction r_j (Equation 4)
     unit_rays = rays_world / np.linalg.norm(rays_world, axis=1, keepdims=True)
-    
+
+    # Get initial 3D world points x_j (Equation 3)
+    # depth_ref is Euclidean range (distance from camera center) (use unit rays + center)
+    center_ref = pose_ref.camera_center()
+    world_points = unit_rays * depth_ref.flatten()[:, None] + center_ref
+
     # Note: AI used to help with the vectorized computations to avoid 
     # looping as much as possible
 
@@ -107,19 +108,27 @@ def constrained_scene_flow(depth_ref, pose_ref, camera_model, comp_poses, comp_f
     valid_lambda = sum_K2 > 1e-6
     lambda_j = np.zeros_like(sum_KU)
     lambda_j[valid_lambda] = sum_KU[valid_lambda] / sum_K2[valid_lambda]
-    
+
+    # Clamp lambda to prevent outlier explosions
+    # Limit correction to +-50% of current depth
+    current_depth = depth_ref.flatten()
+    max_correction = 0.5 * current_depth
+    lambda_j = np.clip(lambda_j, -max_correction, max_correction)
+
+    # Only update pixels that had valid depth
+    valid_depth = current_depth > 0
+    lambda_j[~valid_depth] = 0.0
+
     # Perform vectorwise update of rays
     updated_world_points = world_points + unit_rays * lambda_j[:, None]
-    
-    # Since x_cam = R*x_world + t
-    # therefore solving 0 = R*x_world + t gives cam center in world coords
-    # as such we have -R.T*t = x_world (recall that for rotation R.T = R_inv)
-    center_ref = (-pose_ref.R.T @ pose_ref.t).ravel()
 
     # Compute euclidean distance of new points from camera center to get new depth map
     updated_depth = np.linalg.norm(updated_world_points - center_ref, axis=1).reshape(h, w)
-    
-    # Apply median filter from Section 2.4.3: 
+
+    # Zero out originally-invalid pixels
+    updated_depth[depth_ref <= 0] = 0.0
+
+    # Apply median filter from Section 2.4.3:
     updated_depth = cv2.medianBlur(updated_depth.astype(np.float32), 3)
-    
+
     return updated_depth
