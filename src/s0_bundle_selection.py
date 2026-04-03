@@ -108,47 +108,35 @@ def _perpendicular_angle(translation: np.ndarray, view_dir: np.ndarray) -> float
 
     return np.arctan2(ty, tx) % (2 * np.pi)
 
-def select_comparison_frames(ref_index: int, keyframes: list[Keyframe], camera: CameraModel, n: int = 3,
-                             window: int = 30,  min_baseline: float = 0.005, max_baseline: float = 0.5) -> list[int]:
+def select_comparisons_from_buffer(ref: Keyframe, buffer: list[Keyframe], n: int = 4,
+                                   min_baseline: float = 0.005, max_baseline: float = float('inf')) -> list[Keyframe]:
     """
-    Select n comparison frames for a given reference frame.
-    Select frames with sufficient baseline and diverse translation directions to maximize parallax coverage.
+    Select n comparison frames from a buffer of co-visible frames (Section 2.7).
+    All frames in the buffer already have V_c >= 0.7 with the reference by construction.
+    Selection maximizes angular diversity of translation directions.
     """
-    ref = keyframes[ref_index]
-    ref_center = ref.pose.camera_center()
-
-    # Viewing direction of reference camera (z-axis in world frame)
     ref_view_dir = ref.pose.R.T @ np.array([0, 0, 1])
 
-    # Gather candidates within temporal window (excluding reference)
+    # Compute baseline and angle for each buffer frame
     candidates = []
-    start = max(0, ref_index - window)
-    end = min(len(keyframes), ref_index + window + 1)
-
-    for i in range(start, end):
-        if i == ref_index:
-            continue
-
-        trans = _translation_from_ref(keyframes[i], ref)
+    for kf in buffer:
+        trans = _translation_from_ref(kf, ref)
         baseline = np.linalg.norm(trans)
-
         if baseline < min_baseline or baseline > max_baseline:
             continue
-
         angle = _perpendicular_angle(trans, ref_view_dir)
-        candidates.append((i, baseline, angle))
+        candidates.append((kf, baseline, angle))
 
     if len(candidates) == 0:
-        logger.warning(f"Warning: no valid comparisons for ref {ref_index} (frame {ref.image_name})")
         return []
-    
+
     if len(candidates) <= n:
-        selected = [c[0] for c in candidates]
-        logger.info(f"Ref {ref_index}: {len(selected)} comparisons (all qualifying candidates)")
-        return selected
-    
-    # reedy angular diversity selection
-    # Pick the first candidate (largest baseline for strong parallax)
+        result = [c[0] for c in candidates]
+        angles_deg = [c[2] * 180 / np.pi for c in candidates]
+        logger.info(f"Ref {ref.image_name}: {len(result)} comparisons (all buffer), angles={[f'{a:.0f}°' for a in angles_deg]}")
+        return result
+
+    # Greedy angular diversity: start with largest baseline
     candidates.sort(key=lambda c: c[1], reverse=True)
     selected = [candidates[0]]
     remaining = candidates[1:]
@@ -157,14 +145,11 @@ def select_comparison_frames(ref_index: int, keyframes: list[Keyframe], camera: 
         if not remaining:
             break
 
-        # Pick the candidate whose angle is most different from all already-selected candidates
+        selected_angles = [s[2] for s in selected]
         best_score = -1
         best_index = 0
 
-        selected_angles = [s[2] for s in selected]
-
         for j, cand in enumerate(remaining):
-            # Minimum angular distance to any selected frame
             min_dist = min(min(abs(cand[2] - sa), 2 * np.pi - abs(cand[2] - sa)) for sa in selected_angles)
             if min_dist > best_score:
                 best_score = min_dist
@@ -175,7 +160,7 @@ def select_comparison_frames(ref_index: int, keyframes: list[Keyframe], camera: 
 
     result = [s[0] for s in selected]
     angles_deg = [s[2] * 180 / np.pi for s in selected]
-    logger.info(f"Ref {ref_index}: {len(result)} comparisons, angles={[f'{a:.0f}°' for a in angles_deg]}")
+    logger.info(f"Ref {ref.image_name}: {len(result)} comparisons, angles={[f'{a:.0f}°' for a in angles_deg]}")
     return result
 
 def select_bundles(sfm_result: SfMResult, mesh: BaseMesh, n_comparisons: int = 3, overlap_threshold: float = 0.3, window: int = 30) -> list[Bundle]:
@@ -189,7 +174,7 @@ def select_bundles(sfm_result: SfMResult, mesh: BaseMesh, n_comparisons: int = 3
     # Select comparison frames for each reference
     bundles = []
     for ref_index in ref_indices:
-        comp_indices = select_comparison_frames(ref_index, keyframes, camera, n=n_comparisons, window=window)
+        comp_indices = select_comparison_frames(ref_index, keyframes, camera, mesh, n=n_comparisons, window=window)
 
         if len(comp_indices) == 0:
             continue

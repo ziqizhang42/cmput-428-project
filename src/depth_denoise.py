@@ -66,4 +66,6 @@ def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_
         # Over-relaxation
         D_bar = D_prime + theta * (D_prime - D_old)
         
+    # Preserve invalid regions - don't fill in depth where there was none
+    D_prime[D <= 0] = 0.0
     return D_prime

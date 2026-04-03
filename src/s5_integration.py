@@ -91,6 +91,8 @@ def triangulate_depth_map(depth: np.ndarray, pose: Pose, camera: CameraModel) ->
 
 def filter_by_error(mesh: TriangulatedMesh, E_s: np.ndarray, E_v: np.ndarray, ev_threshold: float = 0.9, es_threshold: float = 1e-3) -> TriangulatedMesh:
     """ Remove low-quality vertices based on reconstruction error measures. (Section 2.4.4)"""
+    E_s = E_s.ravel()
+    E_v = E_v.ravel()
     # Vertices to keep
     keep = ~((E_v < ev_threshold) & (E_s > es_threshold))
 
@@ -109,7 +111,7 @@ def filter_by_error(mesh: TriangulatedMesh, E_s: np.ndarray, E_v: np.ndarray, ev
 
     return TriangulatedMesh(vertices=new_verts, faces=new_faces, normals=new_normals)
 
-def _render_global_depth(global_model: GlobalModel, pose: Pose, camera: CameraModel) -> np.ndarray:
+def render_global_depth(global_model: GlobalModel, pose: Pose, camera: CameraModel) -> np.ndarray:
     """Render the current global model into a reference viewpoint. Returns (H, W) depth map (ray-hit distance, 0 = no hit)."""
     if len(global_model.vertices) == 0 or len(global_model.faces) == 0:
         return np.zeros((camera.height, camera.width), dtype=np.float64)
@@ -139,7 +141,7 @@ def _render_global_depth(global_model: GlobalModel, pose: Pose, camera: CameraMo
 def fuse_into_global(global_model: GlobalModel, new_mesh: TriangulatedMesh, pose_ref: Pose, camera: CameraModel, dist_threshold: float = 0.01) -> GlobalModel:
     """Fuse a new per-bundle mesh into the global model. (Section 2.6)"""
     # Render existing global model into reference view
-    global_depth = _render_global_depth(global_model, pose_ref, camera)
+    global_depth = render_global_depth(global_model, pose_ref, camera)
 
     h, w = camera.height, camera.width
     K = camera.K

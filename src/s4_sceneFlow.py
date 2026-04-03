@@ -109,14 +109,8 @@ def constrained_scene_flow(depth_ref, pose_ref, camera_model, comp_poses, comp_f
     lambda_j = np.zeros_like(sum_KU)
     lambda_j[valid_lambda] = sum_KU[valid_lambda] / sum_K2[valid_lambda]
 
-    # Clamp lambda to prevent outlier explosions
-    # Limit correction to +-50% of current depth
-    current_depth = depth_ref.flatten()
-    max_correction = 0.5 * current_depth
-    lambda_j = np.clip(lambda_j, -max_correction, max_correction)
-
     # Only update pixels that had valid depth
-    valid_depth = current_depth > 0
+    valid_depth = depth_ref.flatten() > 0
     lambda_j[~valid_depth] = 0.0
 
     # Perform vectorwise update of rays
@@ -131,4 +125,54 @@ def constrained_scene_flow(depth_ref, pose_ref, camera_model, comp_poses, comp_f
     # Apply median filter from Section 2.4.3:
     updated_depth = cv2.medianBlur(updated_depth.astype(np.float32), 3)
 
-    return updated_depth
+    # Error measures (Section 2.4.4, Equation 10)
+    # E_s: reprojection residual, average across all comparison frames
+    n_comp = len(comp_poses)
+    sum_residual = np.zeros(h * w, dtype=np.float32)
+
+    for comp_pose, comp_flow in zip(comp_poses, comp_flows):
+        cam_coords_comp = comp_pose.world_to_camera(updated_world_points)
+        X = cam_coords_comp[:, 0]
+        Y = cam_coords_comp[:, 1]
+        Z = cam_coords_comp[:, 2] + 1e-6
+
+        valid = (Z > 0.05)
+        x_grid = ((fx * X / Z) + K[0, 2]).reshape(h, w).astype(np.float32)
+        y_grid = ((fy * Y / Z) + K[1, 2]).reshape(h, w).astype(np.float32)
+
+        vertex_flow = cv2.remap(comp_flow, x_grid, y_grid, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        du = vertex_flow.reshape(-1, 2)
+
+        J_cam = np.zeros((h * w, 2, 3), dtype=np.float32)
+        J_cam[:, 0, 0] = fx / Z
+        J_cam[:, 0, 2] = -fx * X / (Z ** 2)
+        J_cam[:, 1, 1] = fy / Z
+        J_cam[:, 1, 2] = -fy * Y / (Z ** 2)
+        J_world = J_cam @ comp_pose.R
+        K_ji = np.einsum('nij,nj->ni', J_world, unit_rays)
+
+        residual = K_ji * lambda_j[:, None] - du
+        sum_residual += np.linalg.norm(residual, axis=1)
+
+    E_s = (sum_residual / max(n_comp, 1)).reshape(h, w)
+
+    # E_v: visibility measure, approximate surface normals from depth via finite differences in camera frame
+    dz_dx = np.zeros_like(updated_depth)
+    dz_dy = np.zeros_like(updated_depth)
+    dz_dx[:, 1:-1] = (updated_depth[:, 2:] - updated_depth[:, :-2]) / 2.0
+    dz_dy[1:-1, :] = (updated_depth[2:, :] - updated_depth[:-2, :]) / 2.0
+
+    # Surface normal in image space
+    normals_img = np.stack([-dz_dx, -dz_dy, np.ones_like(updated_depth)], axis=-1)
+    n_norm = np.linalg.norm(normals_img, axis=-1, keepdims=True)
+    normals_img = normals_img / np.maximum(n_norm, 1e-8)
+
+    # Ray directions in camera frame
+    rays_flat = unit_rays.reshape(h, w, 3)
+    rays_cam_frame = np.einsum('ij,hwj->hwi', pose_ref.R, rays_flat)
+    rays_cam_norm = rays_cam_frame / np.maximum(
+        np.linalg.norm(rays_cam_frame, axis=-1, keepdims=True), 1e-8)
+
+    E_v = np.abs(np.sum(rays_cam_norm * normals_img, axis=-1))
+
+    return updated_depth, E_s, E_v
