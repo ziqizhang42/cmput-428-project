@@ -52,11 +52,14 @@ def build_base_mesh(sfm_result: SfMResult, octree_depth: int, density_quantile: 
     logger.info(f"Input: {len(points)} oriented points (after sanitization)")
 
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        pcd, depth=octree_depth, n_threads=1,
+        pcd, depth=octree_depth, n_threads=1, scale =1.1, linear_fit=True
     )
     densities = np.asarray(densities)
 
     logger.info(f"Poisson: {len(mesh.vertices)} vertices, {len(mesh.triangles)} faces")
+
+    # Reduces the jagged "octree" look without causing the object to shrink.
+    mesh = mesh.filter_smooth_taubin(number_of_iterations=10)
 
     threshold = np.quantile(densities, density_quantile)
     mask = densities > threshold
@@ -90,7 +93,7 @@ def build_base_mesh(sfm_result: SfMResult, octree_depth: int, density_quantile: 
 
     return BaseMesh(vertices=vertices, faces=faces, normals=normals, _scene=scene)
 
-def render_depth(base_mesh: BaseMesh, pose: Pose, camera: CameraModel) -> np.ndarray:
+def render_depth(base_mesh: BaseMesh, pose: Pose, camera: CameraModel, return_z = False) -> np.ndarray:
     """
     Render the base mesh from a given viewpoint.
     Returns an (H, W) depth map where each pixel holds the distance along the viewing ray to the surface.
@@ -124,6 +127,17 @@ def render_depth(base_mesh: BaseMesh, pose: Pose, camera: CameraModel) -> np.nda
     depth = np.linalg.norm(hit_points - C, axis=-1)
     depth[np.isinf(t_hit)] = 0.0
 
+    if return_z == True:
+        # Convert hit points to camera coordinates
+        cam_points = np.einsum('ij,hwj->hwi', pose.R, hit_points - C)
+
+        # get the value of Z
+        Z_depth = cam_points[..., 2]
+
+        Z_depth[np.isinf(t_hit)] = 0.0
+
+        return depth, Z_depth
+
     return depth
 
 def smooth_depth(depth: np.ndarray, sigma: float) -> np.ndarray:
@@ -143,6 +157,65 @@ def smooth_depth(depth: np.ndarray, sigma: float) -> np.ndarray:
     result[~valid] = 0.0
 
     return result
+
+def texture_mesh(mesh: BaseMesh, sfm_result: SfMResult) -> np.ndarray:
+    """Computes per-vertex RGB colors by averaging samples from all visible keyframes."""
+    num_verts = len(mesh.vertices)
+    vertex_colors = np.zeros((num_verts, 3), dtype=np.float32)
+    counts = np.zeros(num_verts, dtype=np.float32)
+
+    K = sfm_result.camera_model.K
+    h, w = sfm_result.camera_model.height, sfm_result.camera_model.width
+
+    for kf in sfm_result.keyframes:
+        img = cv2.imread(kf.image_path)
+        if img is None: continue
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
+        # Project all vertices into this camera
+        # x_cam = R @ X_world + t
+        pts_cam = (kf.pose.R @ mesh.vertices.T + kf.pose.t).T
+        
+        # Only consider points in front of the camera
+        valid_z = pts_cam[:, 2] > 0.1
+        
+        # Project to pixels: x_pix = K @ x_cam / z
+        pts_pix = (K @ pts_cam.T).T
+        pts_pix[:, 0] /= pts_pix[:, 2]
+        pts_pix[:, 1] /= pts_pix[:, 2]
+
+        # Check image boundaries
+        u, v = pts_pix[:, 0], pts_pix[:, 1]
+        mask = valid_z & (u >= 0) & (u < w - 1) & (v >= 0) & (v < h - 1)
+
+        # Basic visibility check: only color if vertex normal faces the camera
+        # (dot product of world normal and view direction)
+        view_dir = (kf.pose.camera_center() - mesh.vertices)
+        view_dir /= np.linalg.norm(view_dir, axis=1, keepdims=True)
+        cos_theta = np.sum(mesh.normals * view_dir, axis=1)
+        mask &= (cos_theta > 0.3) # 0.3 approx 70 degrees
+
+        if np.any(mask):
+            # Sample colors using bilinear interpolation or simple rounding
+            idx_u = u[mask].astype(int)
+            idx_v = v[mask].astype(int)
+            vertex_colors[mask] += img_rgb[idx_v, idx_u]
+            counts[mask] += 1
+
+    # Average the colors
+    safe = counts > 0
+    vertex_colors[safe] /= counts[safe, None]
+    return vertex_colors
+
+def save_textured_mesh(mesh, colors, path):
+    """Saves the mesh with vertex colors using Open3D."""
+    o3_mesh = o3d.geometry.TriangleMesh()
+    o3_mesh.vertices = o3d.utility.Vector3dVector(mesh.vertices)
+    o3_mesh.triangles = o3d.utility.Vector3iVector(mesh.faces)
+    o3_mesh.vertex_normals = o3d.utility.Vector3dVector(mesh.normals)
+    o3_mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
+    o3d.io.write_triangle_mesh(str(path), o3_mesh)
+    return 
 
 if __name__ == "__main__":
     logging.basicConfig(

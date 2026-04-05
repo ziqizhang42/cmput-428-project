@@ -18,9 +18,13 @@ def get_view_prediction(img_ref, depth_map, pose_ref, pose_comp, camera_model):
     # If we assume that camera center is the origin, we just need to do K_inv * pixel_coords
     # which gives normalized 3D coords, which are restored by multiplying by the depth
     cam_coords_comp = K_inv @ pixels_coords
-    cam_coords_comp *= depth_map.flatten()
 
-    # Use convert reference camera coordinates to world coordinates
+    # Normalize to unit direction before applying Euclidean depth
+    norms = np.linalg.norm(cam_coords_comp, axis=0, keepdims=True)
+    norms = np.maximum(norms, 1e-8)
+    cam_coords_comp = (cam_coords_comp / norms) * depth_map.flatten()
+
+    # Convert comparison camera coordinates to world coordinates
     world_coords = pose_comp.camera_to_world(cam_coords_comp.T)
 
     # Convert world coordinates into comparison camera frame
@@ -31,10 +35,26 @@ def get_view_prediction(img_ref, depth_map, pose_ref, pose_comp, camera_model):
 
     # Avoid division by zero and get coordinates in inhomogeneous coords
     z = pixel_coords_ref[2, :] + 1e-6
-    x_ref = (pixel_coords_ref[0, :] / z).reshape(h, w).astype(np.float32)
-    y_ref = (pixel_coords_ref[1, :] / z).reshape(h, w).astype(np.float32)
+    x_ref_flat = (pixel_coords_ref[0, :] / z)
+    y_ref_flat = (pixel_coords_ref[1, :] / z)
+
+    # Pixels must land inside the boundaries of the reference frame
+    valid_mask = (x_ref_flat >= 0) & (x_ref_flat < w) & (y_ref_flat >= 0) & (y_ref_flat < h)
+
+    # Also verify that the points lie "infront of" the camera
+    valid_z = cam_coords_ref[2, :] > 1e-6
+    valid_mask = valid_z & valid_mask
+
+    valid_mask = valid_mask.reshape(h, w)
+
+    x_ref = x_ref_flat.reshape(h, w).astype(np.float32)
+    y_ref = y_ref_flat.reshape(h, w).astype(np.float32)
 
     # Obtain image prediction using pixel values
     img_prediction = cv2.remap(img_ref, x_ref, y_ref, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,borderValue=0)
 
-    return img_prediction
+    # Mask out areas where depth was invalid
+    img_prediction[depth_map == 0] = 0
+    img_prediction[~valid_mask] = 0
+
+    return img_prediction, valid_mask

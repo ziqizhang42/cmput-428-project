@@ -124,6 +124,15 @@ def select_comparisons_from_buffer(ref: Keyframe, buffer: list[Keyframe], n: int
         baseline = np.linalg.norm(trans)
         if baseline < min_baseline or baseline > max_baseline:
             continue
+
+        # Check view direction alignment
+        kf_view_dir = kf.pose.R.T @ np.array([0, 0, 1])
+        cos_sim = np.dot(ref_view_dir, kf_view_dir)
+        view_angle = np.arccos(np.clip(cos_sim, -1.0, 1.0)) * 180 / np.pi
+        
+        if view_angle > 20.0:  # Ignore frames rotated by more than 20 degrees
+            continue
+
         angle = _perpendicular_angle(trans, ref_view_dir)
         candidates.append((kf, baseline, angle))
 

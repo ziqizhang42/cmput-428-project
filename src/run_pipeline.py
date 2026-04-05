@@ -12,10 +12,10 @@ import open3d as o3d
 from pathlib import Path
 
 from depth_denoise import denoise_depth_map_tvl1
-from opticFlow import tv_l1
+from opticFlow import tv_l1, structure_texture_decomposition
 from s0_bundle_selection import Bundle, select_comparisons_from_buffer, save_bundles, _compute_overlap
 from s1_sfm import parse_reconstruction
-from s2_base_mesh import BaseMesh, build_base_mesh, render_depth, smooth_depth
+from s2_base_mesh import BaseMesh, build_base_mesh, render_depth, smooth_depth, save_textured_mesh, texture_mesh
 from s3_view_prediction import get_view_prediction
 from s4_sceneFlow import constrained_scene_flow
 from s5_integration import GlobalModel, integrate_bundle, export_ply, triangulate_depth_map, render_global_depth
@@ -23,9 +23,10 @@ from s5_integration import GlobalModel, integrate_bundle, export_ply, triangulat
 logger = logging.getLogger(__name__)
 
 N_COMPARISONS = 4 # comparison frames per bundle (Section 3)
-N_ITERATIONS = 2 # Total iterations for vertex updates (Section 2.5.3)
+N_ITERATIONS = 3 # Total iterations for vertex updates (Section 2.5.3)
+EPSILON = 1e-4
 
-POISSON_DEPTH = 8 # base surface resolution
+POISSON_DEPTH = 10 # base surface resolution
 SIGMA = 1.0 # depth smoothing sigma
 OVERLAP_THRESH = 0.3 # V_r for reference selection (Section 2.7)
 BUNDLE_WINDOW = 30 # temporal window for comparison selection
@@ -99,48 +100,93 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
     depth = smooth_depth(base_depth, sigma=SIGMA)
     save_depth_vis(depth, bdir / "depth_0_base_smooth.png", "base smooth")
 
+
+    before_mesh = triangulate_depth_map(base_depth, ref.pose, camera)  # ref, not ref_kf
+    m = o3d.geometry.TriangleMesh()
+    m.vertices = o3d.utility.Vector3dVector(before_mesh.vertices)
+    m.triangles = o3d.utility.Vector3iVector(before_mesh.faces)
+    m.compute_vertex_normals()
+
+    output_path = Path("workspace/dense_before_sceneflow_bundle_{}.ply".format(bundle_index))
+    o3d.io.write_triangle_mesh(str(output_path), m)
+
     if np.sum(depth > 0) == 0:
         logger.warning(f"Warning: no depth for {ref.image_name}, skipping")
         return depth, None, None
 
     # Current mesh for view prediction (starts as base mesh)
     current_mesh = mesh
+    tvl1 = cv2.optflow.DualTVL1OpticalFlow_create()
+    tvl1.setScalesNumber(5)     # Default is 5, but can be increased if needed
+    tvl1.setWarpingsNumber(5)   # Increases inner warping iterations to resolve complex flows
+    tvl1.setEpsilon(0.01)
 
     for it in range(N_ITERATIONS):
         it_dir = bdir / f"iter_{it}"
         it_dir.mkdir(exist_ok=True)
 
         flows = []
+        valid_masks = []
+        depth_z = []
         for j, (comp_kf, img_comp) in enumerate(zip(comps, imgs_comp)):
             # Render current mesh from comparison viewpoint (Section 2.5.2)
-            depth_comp = render_depth(current_mesh, comp_kf.pose, camera)
+            depth_comp, depth_z_comp = render_depth(current_mesh, comp_kf.pose, camera, True)
             save_depth_vis(depth_comp, it_dir / f"depth_comp_{j}.png", f"comp {j} depth")
 
-            predicted = get_view_prediction(img_ref, depth_comp, ref.pose, comp_kf.pose, camera)
-            cv2.imwrite(str(it_dir / f"predicted_{j}.png"), (np.clip(predicted, 0, 1) * 255).astype(np.uint8))
+            depth_z.append(depth_z_comp)
 
-            # Calculate optical flow
-            u1, u2 = tv_l1(predicted, img_comp)
-            flow = np.stack([u1, u2], axis=-1).astype(np.float32)
+            # valid mask tells us which pixels of the image prediction are valid
+            predicted, valid_mask = get_view_prediction(img_ref, depth_comp, ref.pose, comp_kf.pose, camera)
+            valid_masks.append(valid_mask)
+
+            cv2.imwrite(str(it_dir / f"predicted_{j}.png"), (np.clip(predicted, 0, 1) * 255).astype(np.uint8))
+            
+            # Convert to correct format
+            img_comp = img_comp.astype(np.float32)
+            predicted = predicted.astype(np.float32)
+
+            # Calculate optical flow (expects 8 byte unsigned integer)
+            img_comp_u8 = (np.clip(img_comp, 0, 1) * 255).astype(np.uint8)
+            predicted_u8 = (np.clip(predicted, 0, 1) * 255).astype(np.uint8)
+
+            flow = tvl1.calc(predicted_u8, img_comp_u8, None)
+            flow = flow.astype(np.float32)
             save_flow_vis(flow, it_dir / f"flow_{j}.png", f"flow {j}")
             flows.append(flow)
 
         comp_poses = [c.pose for c in comps]
 
-        depth, E_s, E_v = constrained_scene_flow(depth, ref.pose, camera, comp_poses, flows)
+        depth, E_s, E_v = constrained_scene_flow(depth, ref.pose, camera, comp_poses, flows, valid_masks, depth_z)
         depth = depth.astype(np.float64)
+
+        # Outlier rejection every inner iteration, not just after
+        valid_base = base_depth > 0
+        outlier = valid_base & (np.abs(depth - base_depth) > 0.3 * base_depth)
+        depth[outlier] = base_depth[outlier]
+        depth[depth <= 0] = base_depth[depth <= 0]
+        
         save_depth_vis(depth, it_dir / "depth_sceneflow.png", "sceneflow")
 
         # Denoise before next iteration's view prediction
         logger.info(f"Applying TV-L1 depth map denoising...")
         depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_iters=100)
         save_depth_vis(depth, it_dir / "depth_denoised.png", "denoised")
+        
+        # Also catch any other pixels that somehow became 0 or negative
+        invalid = depth <= 0
+        depth[invalid] = base_depth[invalid]
 
-        # Reject outlier depth: zero out pixels that deviate too far from base mesh
-        valid_base = base_depth > 0
-        outlier = valid_base & (np.abs(depth - base_depth) > 0.5 * base_depth)
-        depth[outlier] = 0.0
         logger.info(f"Iteration {it + 1}/{N_ITERATIONS}: {np.sum(depth > 0)} valid pixels ({outlier.sum()} outliers removed)")
+
+        if E_s is not None:
+            valid = E_s > 0
+            if np.any(valid):
+                avg_error = np.mean(E_s[valid])
+                logger.info(f"Iteration {it}: avg reprojection error = {avg_error:.6f}")
+
+                if avg_error < EPSILON:
+                    logger.info(f"Converged at iteration {it}")
+                    break
 
         # Retriangulate depth into mesh for next iteration's view prediction (Section 2.5.2)
         if it < N_ITERATIONS - 1:
@@ -150,12 +196,7 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
             mesh_t.vertex.positions = o3d.core.Tensor(local_mesh.vertices.astype(np.float32))
             mesh_t.triangle.indices = o3d.core.Tensor(local_mesh.faces.astype(np.int32))
             scene.add_triangles(mesh_t)
-            current_mesh = BaseMesh(
-                vertices=local_mesh.vertices,
-                faces=local_mesh.faces,
-                normals=local_mesh.normals,
-                _scene=scene,
-            )
+            current_mesh = BaseMesh(vertices=local_mesh.vertices, faces=local_mesh.faces, normals=local_mesh.normals, _scene=scene)
 
     # Save final per-bundle mesh
     save_mesh_ply(depth, ref.pose, camera, bdir / "bundle_mesh.ply", "final bundle mesh")
@@ -187,6 +228,10 @@ if __name__ == "__main__":
     logger.info("[2/4] Building base mesh...")
     base_mesh = build_base_mesh(sfm_result, octree_depth=POISSON_DEPTH, density_quantile=0.1)
 
+    logger.info("Texturing and saving initial Poisson base mesh...")
+    base_colors = texture_mesh(base_mesh, sfm_result)
+    save_textured_mesh(base_mesh, base_colors, workspace / "initial_textured_poisson.ply")
+
     logger.info("[3/4] Interleaved bundle selection + processing...")
     keyframes = sfm_result.keyframes
     camera = sfm_result.camera_model
@@ -196,13 +241,11 @@ if __name__ == "__main__":
 
     # Compute adaptive max baseline: median consecutive keyframe distance * 3
     # This approximates paper's constraint in scene-scale units
-    consecutive_dists = [
-        np.linalg.norm(keyframes[i+1].pose.camera_center() - keyframes[i].pose.camera_center())
-        for i in range(len(keyframes) - 1)
-    ]
-    median_step = np.median(consecutive_dists)
-    max_baseline = median_step * 3
-    logger.info(f"Adaptive max baseline: {max_baseline:.4f} (median step {median_step:.4f} * 3)")
+    depth_sample = render_depth(base_mesh, keyframes[0].pose, camera)
+    valid_depths = depth_sample[depth_sample > 0]
+    scene_depth = np.median(valid_depths) if len(valid_depths) > 0 else 1.0
+    max_baseline = scene_depth * 0.06  # 6% of scene depth
+    logger.info(f"Scene-depth-relative max baseline: {max_baseline:.4f}m (scene depth {scene_depth:.4f}m)")
 
     # Section 2.7: walk through frames, maintain a buffer of co-visible frames.
     # When co-visibility V_c drops or buffer is full, trigger a new bundle.
@@ -212,6 +255,9 @@ if __name__ == "__main__":
 
     ref_kf = None
     buffer = []
+
+    # NEEDS TO BE REMOVED LATER, CURRENTLY WANT TO GET IT WORKING WITH SINGLE BUNDLE
+    bundle_processed = False
 
     for i, kf in enumerate(keyframes):
         # Find first reference
@@ -246,12 +292,16 @@ if __name__ == "__main__":
                 bundle_index += 1
                 logger.info(f"Global model: {len(global_model.vertices)} vertices")
 
+                # --- CHANGED: Hard break to process exactly one bundle ---
+                bundle_processed = True
+                break
+
         # This frame becomes the new reference, clear buffer
         ref_kf = kf
         buffer = []
 
     # Process final bundle if buffer is non-empty
-    if ref_kf is not None and buffer:
+    if not bundle_processed and ref_kf is not None and buffer:
         logger.info(f"Final bundle {bundle_index} (ref={ref_kf.image_name}, buffer={len(buffer)} frames)")
         comparisons = select_comparisons_from_buffer(ref_kf, buffer, n=N_COMPARISONS, max_baseline=max_baseline)
         if comparisons:
