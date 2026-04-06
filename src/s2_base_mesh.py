@@ -49,6 +49,11 @@ def build_base_mesh(sfm_result: SfMResult, octree_depth: int, density_quantile: 
     pcd.points = o3d.utility.Vector3dVector(points)
     pcd.normals = o3d.utility.Vector3dVector(normals)
 
+    pcd, inlier_indices = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+    points = np.asarray(pcd.points)  # keep points in sync for bbox computation later
+    normals = np.asarray(pcd.normals)
+    logger.info(f"After outlier removal: {len(points)} points remaining")
+
     logger.info(f"Input: {len(points)} oriented points (after sanitization)")
 
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
@@ -58,14 +63,9 @@ def build_base_mesh(sfm_result: SfMResult, octree_depth: int, density_quantile: 
 
     logger.info(f"Poisson: {len(mesh.vertices)} vertices, {len(mesh.triangles)} faces")
 
-    # Reduces the jagged "octree" look without causing the object to shrink.
-    mesh = mesh.filter_smooth_taubin(number_of_iterations=10)
-
     threshold = np.quantile(densities, density_quantile)
     mask = densities > threshold
     mesh.remove_vertices_by_mask(~mask)
-
-    mesh.compute_vertex_normals()
 
     logger.info(f"After density trim ({density_quantile:.0%} quantile): {len(mesh.vertices)} vertices, {len(mesh.triangles)} faces")
 
@@ -79,7 +79,22 @@ def build_base_mesh(sfm_result: SfMResult, octree_depth: int, density_quantile: 
     bbox = o3d.geometry.AxisAlignedBoundingBox(min_bound=bbox_min, max_bound=bbox_max)
     mesh = mesh.crop(bbox)
 
+    triangle_clusters, cluster_n_triangles, _ = mesh.cluster_connected_triangles()
+    triangle_clusters = np.asarray(triangle_clusters)
+    cluster_n_triangles = np.asarray(cluster_n_triangles)
+    largest_cluster = cluster_n_triangles.argmax()
+    mesh.remove_triangles_by_mask(triangle_clusters != largest_cluster)
+    mesh.remove_unreferenced_vertices()
+    logger.info(f"After component removal: {len(mesh.vertices)} vertices, {len(mesh.triangles)} faces")
+
     logger.info(f"After bbox crop: {len(mesh.vertices)} vertices, {len(mesh.triangles)} faces")
+
+    # Reduces the jagged "octree" look without causing the object to shrink.
+    mesh = mesh.filter_smooth_taubin(number_of_iterations=20)
+
+    mesh.orient_triangles()
+
+    mesh.compute_vertex_normals()
 
     vertices = np.asarray(mesh.vertices)
     faces = np.asarray(mesh.triangles)

@@ -12,7 +12,7 @@ import open3d as o3d
 from pathlib import Path
 
 from depth_denoise import denoise_depth_map_tvl1
-from opticFlow import tv_l1, structure_texture_decomposition
+from opticFlow import structure_texture_decomposition_skimage, get_forward_backward_mask
 from s0_bundle_selection import Bundle, select_comparisons_from_buffer, save_bundles, _compute_overlap
 from s1_sfm import parse_reconstruction
 from s2_base_mesh import BaseMesh, build_base_mesh, render_depth, smooth_depth, save_textured_mesh, texture_mesh
@@ -26,11 +26,10 @@ N_COMPARISONS = 4 # comparison frames per bundle (Section 3)
 N_ITERATIONS = 3 # Total iterations for vertex updates (Section 2.5.3)
 EPSILON = 1e-4
 
-POISSON_DEPTH = 10 # base surface resolution
-SIGMA = 1.0 # depth smoothing sigma
+POISSON_DEPTH = 8 # base surface resolution
+SIGMA = 5.0 # depth smoothing sigma
 OVERLAP_THRESH = 0.3 # V_r for reference selection (Section 2.7)
 BUNDLE_WINDOW = 30 # temporal window for comparison selection
-DIST_THRESHOLD = 0.01 # overlap threshold for mesh fusion
 OUTPUT_PATH = "reconstruction.ply"
 
 DEBUG_DIR: Path = Path("debug")
@@ -88,6 +87,18 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
     img_ref = load_grayscale(ref.image_path)
     imgs_comp = [load_grayscale(c.image_path) for c in comps]
 
+    # structure-texture decomposition
+    _, img_ref_tex = structure_texture_decomposition_skimage(img_ref)
+
+    # Convert back to float 64
+    img_ref_tex = img_ref_tex.astype(np.float64)
+
+    imgs_comp_tex = []
+    for img in imgs_comp:
+        _, t = structure_texture_decomposition_skimage(img)
+        t = t.astype(np.float64)
+        imgs_comp_tex.append(t)
+
     # Save reference and comparison images
     cv2.imwrite(str(bdir / "ref.png"), (img_ref * 255).astype(np.uint8))
     for j, img_c in enumerate(imgs_comp):
@@ -99,7 +110,6 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
 
     depth = smooth_depth(base_depth, sigma=SIGMA)
     save_depth_vis(depth, bdir / "depth_0_base_smooth.png", "base smooth")
-
 
     before_mesh = triangulate_depth_map(base_depth, ref.pose, camera)  # ref, not ref_kf
     m = o3d.geometry.TriangleMesh()
@@ -128,7 +138,7 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
         flows = []
         valid_masks = []
         depth_z = []
-        for j, (comp_kf, img_comp) in enumerate(zip(comps, imgs_comp)):
+        for j, (comp_kf, img_comp, img_comp_tex) in enumerate(zip(comps, imgs_comp, imgs_comp_tex)):
             # Render current mesh from comparison viewpoint (Section 2.5.2)
             depth_comp, depth_z_comp = render_depth(current_mesh, comp_kf.pose, camera, True)
             save_depth_vis(depth_comp, it_dir / f"depth_comp_{j}.png", f"comp {j} depth")
@@ -136,23 +146,35 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
             depth_z.append(depth_z_comp)
 
             # valid mask tells us which pixels of the image prediction are valid
-            predicted, valid_mask = get_view_prediction(img_ref, depth_comp, ref.pose, comp_kf.pose, camera)
-            valid_masks.append(valid_mask)
+            predicted, valid_mask = get_view_prediction(img_ref_tex, depth_comp, ref.pose, comp_kf.pose, camera)
 
             cv2.imwrite(str(it_dir / f"predicted_{j}.png"), (np.clip(predicted, 0, 1) * 255).astype(np.uint8))
             
             # Convert to correct format
-            img_comp = img_comp.astype(np.float32)
             predicted = predicted.astype(np.float32)
 
             # Calculate optical flow (expects 8 byte unsigned integer)
-            img_comp_u8 = (np.clip(img_comp, 0, 1) * 255).astype(np.uint8)
+            img_comp_u8 = (np.clip(img_comp_tex, 0, 1) * 255).astype(np.uint8)
             predicted_u8 = (np.clip(predicted, 0, 1) * 255).astype(np.uint8)
 
-            flow = tvl1.calc(predicted_u8, img_comp_u8, None)
-            flow = flow.astype(np.float32)
-            save_flow_vis(flow, it_dir / f"flow_{j}.png", f"flow {j}")
-            flows.append(flow)
+            # Forward flow: predicted -> img_comp
+            flow_fw = tvl1.calc(predicted_u8, img_comp_u8, None).astype(np.float32)
+
+            # Backward flow: img_comp -> predicted  
+            flow_bw = tvl1.calc(img_comp_u8, predicted_u8, None).astype(np.float32)
+
+            # Check if forward and backward flow ~the same
+            fb_mask = get_forward_backward_mask(flow_fw, flow_bw)
+
+            # Zero out inconsistent flow vectors
+            flow_fw[~fb_mask] = 0.0
+
+            # Combine with existing valid mask
+            valid_mask = valid_mask & fb_mask
+            valid_masks.append(valid_mask)
+
+            save_flow_vis(flow_fw, it_dir / f"flow_{j}.png", f"flow {j}")
+            flows.append(flow_fw)
 
         comp_poses = [c.pose for c in comps]
 
@@ -169,7 +191,7 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
 
         # Denoise before next iteration's view prediction
         logger.info(f"Applying TV-L1 depth map denoising...")
-        depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_iters=100)
+        depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=10.0, beta=1.0, lambda_data=2.0, num_iters=100)
         save_depth_vis(depth, it_dir / "depth_denoised.png", "denoised")
         
         # Also catch any other pixels that somehow became 0 or negative
@@ -190,7 +212,9 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
 
         # Retriangulate depth into mesh for next iteration's view prediction (Section 2.5.2)
         if it < N_ITERATIONS - 1:
-            local_mesh = triangulate_depth_map(depth, ref.pose, camera)
+            depth_viewPred = smooth_depth(depth, sigma=SIGMA)
+
+            local_mesh = triangulate_depth_map(depth_viewPred, ref.pose, camera)
             scene = o3d.t.geometry.RaycastingScene()
             mesh_t = o3d.t.geometry.TriangleMesh()
             mesh_t.vertex.positions = o3d.core.Tensor(local_mesh.vertices.astype(np.float32))
@@ -226,7 +250,7 @@ if __name__ == "__main__":
     logger.info(f"{len(sfm_result.keyframes)} keyframes, {len(sfm_result.sparse_points)} points")
 
     logger.info("[2/4] Building base mesh...")
-    base_mesh = build_base_mesh(sfm_result, octree_depth=POISSON_DEPTH, density_quantile=0.1)
+    base_mesh = build_base_mesh(sfm_result, octree_depth=POISSON_DEPTH, density_quantile=0.15)
 
     logger.info("Texturing and saving initial Poisson base mesh...")
     base_colors = texture_mesh(base_mesh, sfm_result)
@@ -247,6 +271,10 @@ if __name__ == "__main__":
     max_baseline = scene_depth * 0.06  # 6% of scene depth
     logger.info(f"Scene-depth-relative max baseline: {max_baseline:.4f}m (scene depth {scene_depth:.4f}m)")
 
+    # Use scene_depth to compute the DIST_THRESHOLD for fusion
+    DIST_THRESHOLD = scene_depth * 0.005
+    logger.info(f"Fusion dist threshold: {DIST_THRESHOLD:.4f}m")
+
     # Section 2.7: walk through frames, maintain a buffer of co-visible frames.
     # When co-visibility V_c drops or buffer is full, trigger a new bundle.
     COVIS_THRESH = 0.7
@@ -255,9 +283,6 @@ if __name__ == "__main__":
 
     ref_kf = None
     buffer = []
-
-    # NEEDS TO BE REMOVED LATER, CURRENTLY WANT TO GET IT WORKING WITH SINGLE BUNDLE
-    bundle_processed = False
 
     for i, kf in enumerate(keyframes):
         # Find first reference
@@ -284,6 +309,13 @@ if __name__ == "__main__":
         # Process bundle
         if buffer:
             comparisons = select_comparisons_from_buffer(ref_kf, buffer, n=N_COMPARISONS, max_baseline=max_baseline)
+
+            if len(comparisons) < 2:  # need at least 2 for reliable scene flow
+                logger.warning(f"Bundle {bundle_index}: only {len(comparisons)} comparison(s), skipping")
+                ref_kf = kf
+                buffer = []
+                continue
+
             if comparisons:
                 bundle = Bundle(reference=ref_kf, comparisons=comparisons)
                 bundles.append(bundle)
@@ -292,16 +324,12 @@ if __name__ == "__main__":
                 bundle_index += 1
                 logger.info(f"Global model: {len(global_model.vertices)} vertices")
 
-                # --- CHANGED: Hard break to process exactly one bundle ---
-                bundle_processed = True
-                break
-
         # This frame becomes the new reference, clear buffer
         ref_kf = kf
         buffer = []
 
     # Process final bundle if buffer is non-empty
-    if not bundle_processed and ref_kf is not None and buffer:
+    if ref_kf is not None and buffer:
         logger.info(f"Final bundle {bundle_index} (ref={ref_kf.image_name}, buffer={len(buffer)} frames)")
         comparisons = select_comparisons_from_buffer(ref_kf, buffer, n=N_COMPARISONS, max_baseline=max_baseline)
         if comparisons:
@@ -316,5 +344,24 @@ if __name__ == "__main__":
         save_bundles(bundles, bundle_path)
 
     logger.info(f"[4/4] Saving final model to {OUTPUT_PATH}...")
+
+    # Post-process global model
+    logger.info("Post-processing global model...")
+
+    final_o3d = o3d.geometry.TriangleMesh()
+    final_o3d.vertices = o3d.utility.Vector3dVector(global_model.vertices)
+    final_o3d.triangles = o3d.utility.Vector3iVector(global_model.faces.astype(np.int32))
+
+    # Clean mesh
+    final_o3d.remove_degenerate_triangles()
+    final_o3d.remove_unreferenced_vertices()
+
+    # Taubin smoothing
+    final_o3d = final_o3d.filter_smooth_taubin(number_of_iterations=10)
+    final_o3d.compute_vertex_normals()
+
+    # Write back
+    global_model = GlobalModel(vertices=np.asarray(final_o3d.vertices), faces=np.asarray(final_o3d.triangles), normals=np.asarray(final_o3d.vertex_normals))
+
     export_ply(global_model, OUTPUT_PATH)
     logger.info(f"Done: {bundle_index} bundles, {len(global_model.vertices)} vertices")

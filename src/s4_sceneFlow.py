@@ -132,9 +132,9 @@ def constrained_scene_flow(depth_ref, pose_ref, camera_model, comp_poses, comp_f
     damping_factor = 0.1  # Tune this (higher means smaller, more stable steps)
     lambda_j[valid_lambda] = sum_KU[valid_lambda] / (sum_K2[valid_lambda] + damping_factor)
 
-    # Clamp: don't allow updates larger than e.g. 20% of current depth
+    # Clamp: don't allow updates larger than e.g. 1% of current depth
     depth_scale = np.median(depth_ref[depth_ref > 0]) if np.any(depth_ref > 0) else 1.0
-    max_update = 0.05 * depth_scale
+    max_update = 0.01 * depth_scale
     lambda_j = np.clip(lambda_j, -max_update, max_update)
 
     # Only update pixels that had valid depth

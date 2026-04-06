@@ -237,7 +237,7 @@ def parse_reconstruction(recon: pycolmap.Reconstruction, image_dir: Path, max_re
 
     return SfMResult(camera_model=camera_model, keyframes=keyframes, sparse_points=sparse_points)
 
-def run_sfm(image_dir: str | Path, workspace_dir: str | Path = "workspace", max_reproj_error=4.0, min_track_length=3) -> SfMResult:
+def run_sfm(image_dir: str | Path, workspace_dir: str | Path = "workspace", max_reproj_error=2.0, min_track_length=5) -> SfMResult:
     """Runs the full SfM pipeline and returns structured results."""
 
     image_dir = Path(image_dir)

@@ -91,10 +91,18 @@ def triangulate_depth_map(depth: np.ndarray, pose: Pose, camera: CameraModel) ->
 
 def filter_by_error(mesh: TriangulatedMesh, E_s: np.ndarray, E_v: np.ndarray, ev_threshold: float = 0.9, es_threshold: float = 1e-3) -> TriangulatedMesh:
     """ Remove low-quality vertices based on reconstruction error measures. (Section 2.4.4)"""
-    E_s = E_s.ravel()
-    E_v = E_v.ravel()
-    # Vertices to keep
-    keep = ~((E_v < ev_threshold) & (E_s > es_threshold))
+    
+    # User adaptive error rejection rather than fixed threshold
+    E_s_flat = E_s.ravel()
+    E_v_flat = E_v.ravel()
+    
+    if es_threshold is None:
+        valid_es = E_s_flat[E_s_flat > 0]
+        # Keep vertices below the 75th percentile of error — adaptive to actual flow scale
+        es_threshold = np.percentile(valid_es, 75) if len(valid_es) > 0 else 1.0
+        logger.info(f"Adaptive es_threshold: {es_threshold:.4f}")
+
+    keep = ~((E_v_flat < ev_threshold) & (E_s_flat > es_threshold))
 
     # Build old -> new vertex index mapping
     new_index = np.full(len(mesh.vertices), -1, dtype=np.int32)
@@ -134,9 +142,18 @@ def render_global_depth(global_model: GlobalModel, pose: Pose, camera: CameraMod
     )
 
     result = scene.cast_rays(rays)
-    depth = result['t_hit'].numpy().astype(np.float64)
-    depth[depth == np.inf] = 0.0
-    return depth
+    t_hit = result['t_hit'].numpy()
+
+    # Convert t_hit to Z-depth to match z_vals in fuse_into_global
+    rays_np = rays.numpy().astype(np.float64)
+    directions = rays_np[..., 3:6]
+
+    # Z-component of (origin + t*direction) in camera frame
+    # directions are already in camera frame from create_rays_pinhole
+    z_depth = directions[..., 2] * t_hit  # Z component only
+    z_depth[np.isinf(t_hit)] = 0.0
+    z_depth[np.isnan(z_depth)] = 0.0
+    return z_depth
 
 def fuse_into_global(global_model: GlobalModel, new_mesh: TriangulatedMesh, pose_ref: Pose, camera: CameraModel, dist_threshold: float = 0.01) -> GlobalModel:
     """Fuse a new per-bundle mesh into the global model. (Section 2.6)"""
@@ -151,8 +168,13 @@ def fuse_into_global(global_model: GlobalModel, new_mesh: TriangulatedMesh, pose
     z_vals = cam_coords[:, 2]
 
     proj = (K @ cam_coords.T).T
-    px = proj[:, 0] / (z_vals + 1e-8)
-    py = proj[:, 1] / (z_vals + 1e-8)
+    z_safe = np.where(np.abs(z_vals) > 1e-6, z_vals, 1e-6)
+    px = proj[:, 0] / z_safe
+    py = proj[:, 1] / z_safe
+
+    # Replace any remaining NaN/inf with values that will fail the bounds check
+    px = np.nan_to_num(px, nan=-1.0, posinf=-1.0, neginf=-1.0)
+    py = np.nan_to_num(py, nan=-1.0, posinf=-1.0, neginf=-1.0)
 
     # For each new vertex, check overlap with existing geometry.
     # create_rays_pinhole uses unnormalized ray directions (z-component about 1), so t_hit is about z-depth in camera frame.
@@ -201,7 +223,19 @@ def integrate_bundle(depth: np.ndarray, pose_ref: Pose, camera: CameraModel, glo
     """Full stage 5 for one bundle: triangulate, filter, fuse"""
     mesh = triangulate_depth_map(depth, pose_ref, camera)
     if E_s is not None and E_v is not None:
-        mesh = filter_by_error(mesh, E_s, E_v)
+        mesh = filter_by_error(mesh, E_s, E_v, es_threshold=None)
+
+    # Perform taubin smooth on current bundle
+    mesh_o3d = o3d.geometry.TriangleMesh()
+    mesh_o3d.vertices = o3d.utility.Vector3dVector(mesh.vertices)
+    mesh_o3d.triangles = o3d.utility.Vector3iVector(mesh.faces.astype(np.int32))
+
+    mesh_o3d = mesh_o3d.filter_smooth_taubin(number_of_iterations=10)
+    mesh_o3d.compute_vertex_normals()
+
+    # Convert back to custom data structure
+    mesh = TriangulatedMesh(vertices=np.asarray(mesh_o3d.vertices), faces=np.asarray(mesh_o3d.triangles),normals=np.asarray(mesh_o3d.vertex_normals))
+    
     return fuse_into_global(global_model, mesh, pose_ref, camera, dist_threshold)
 
 def export_ply(global_model: GlobalModel, path: str) -> None:

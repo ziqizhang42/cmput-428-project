@@ -1,5 +1,6 @@
 import numpy as np
 import cv2
+from skimage.restoration import denoise_tv_chambolle
 
 MAX_WARPS = 5
 MAX_OUTER_ITERATIONS = 10
@@ -251,3 +252,54 @@ def build_pyramid(img):
         # Add coarser image to pyramid
         pyramid.append(img)
     return pyramid
+
+# AI USED TO HELP WITH IMPLEMENTATION
+def get_forward_backward_mask(flow_fw: np.ndarray, flow_bw: np.ndarray) -> np.ndarray:
+    """Computes a mask of valid optical flow vectors using a forward-backward consistency check."""
+    h, w = flow_fw.shape[:2]
+
+    # Create a grid of pixel coordinates for Image 1
+    x, y = np.meshgrid(np.arange(w), np.arange(h))
+
+    # Map Image 1 pixels to their estimated locations in Image 2
+    remap_x = (x + flow_fw[..., 0]).astype(np.float32)
+    remap_y = (y + flow_fw[..., 1]).astype(np.float32)
+
+    # Use sample backward flow
+    sampled_bw_x = cv2.remap(flow_bw[..., 0], remap_x, remap_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    sampled_bw_y = cv2.remap(flow_bw[..., 1], remap_x, remap_y, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+
+    sampled_bw = np.stack([sampled_bw_x, sampled_bw_y], axis=-1)
+
+    # Calculate the norm of the round-trip error
+    round_trip_error = np.linalg.norm(flow_fw + sampled_bw, axis=-1)
+
+    # Get adaptive threshold
+    flow_magnitude = np.linalg.norm(flow_fw, axis=-1)
+    adaptive_threshold = np.maximum(1.0, 0.05 * flow_magnitude)
+
+    # Create a boolean mask where the error is below the threshold
+    valid_mask = round_trip_error < adaptive_threshold
+
+    # Also invalidate pixels that mapped outside the image boundaries
+    in_bounds = ((remap_x >= 0) & (remap_x < w) & (remap_y >= 0) & (remap_y < h))
+    valid_mask = valid_mask & in_bounds
+
+    return valid_mask
+
+def structure_texture_decomposition_skimage(image, weight=0.2, num_iters=100, alpha=0.95):
+    """Extract an images structure & (blended) texture components """
+    # Ensure image is float between 0 and 1 for skimage
+    img_float = image.astype(np.float32)
+    if img_float.max() > 1.0:
+        img_float /= 255.0
+
+    # denoise_tv_chambolle returns the smooth "structure"
+    # The 'weight' parameter here corresponds to 'theta' in many TV formulations
+    structure = denoise_tv_chambolle(img_float, weight=weight, max_num_iter=num_iters)
+
+    # The high-frequency texture is the residual
+    texture = img_float - (alpha* structure)
+
+    # Scale back to typical image range if necessary, or keep as float32
+    return structure, texture

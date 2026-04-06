@@ -3,7 +3,6 @@ import cv2
 
 def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_iters=100):
     """ Minimizes the g-weighted TV-L1 """
-
     # Compute spatial gradients
     I_ref_f32 = I_ref.astype(np.float32)
     Ix = cv2.Sobel(I_ref_f32, cv2.CV_32F, 1, 0, ksize=3)
@@ -11,11 +10,16 @@ def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_
     grad_mag = np.sqrt(Ix**2 + Iy**2)
     
     # Want Gradient Magitude Between 0 & 1 (so that weight works correctly)
-    grad_mag_norm = (grad_mag - grad_mag.min()) / (grad_mag.max() - grad_mag.min() + 1e-8)
+    # We use percentile to avoid outliers affecting the weighting
+    grad_mag_norm = grad_mag / (np.percentile(grad_mag, 95) + 1e-8)
+    grad_mag_norm = np.clip(grad_mag_norm, 0.0, 1.0)
     
     # The isotropic regularisation weight g
     g = np.exp(-alpha * (grad_mag_norm ** beta))
     
+    # Valid pixel mask — prevents holes from corrupting valid regions
+    valid_mask = (D > 0).astype(np.float64)
+
     # Initialize variables
     D_prime = D.copy() # New depth Map that's being computed
     D_bar = D_prime.copy() # Over-relaxed variable
@@ -26,14 +30,16 @@ def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_
     # Chambolle-Pock parameters (must satisfy tau * sigma * L^2 <= 1, where L^2 = 8 for 2D gradients)
     tau = 0.35
     sigma = 0.35
-    theta = 1.0 # Relaxation parameter
     
-    for _ in range(num_iters):
+    for i in range(num_iters):
         # Compute gradient w/ forward diff (is relevant for divergence later)
         Dx = np.zeros_like(D_bar)
         Dy = np.zeros_like(D_bar)
-        Dx[:, :-1] = D_bar[:, 1:] - D_bar[:, :-1]
-        Dy[:-1, :] = D_bar[1:, :] - D_bar[:-1, :]
+
+        # Only compute gradient between two valid pixels therefore use:
+        # valid_mask[:, :-1] * valid_mask[:, 1:] (ensure that the gradient between the pixels is valid)
+        Dx[:, :-1] = (D_bar[:, 1:] - D_bar[:, :-1]) * valid_mask[:, :-1] * valid_mask[:, 1:]
+        Dy[:-1, :] = (D_bar[1:, :] - D_bar[:-1, :]) * valid_mask[:-1, :] * valid_mask[1:, :]
         
         # Update dual variables
         px_new = px + sigma * Dx
@@ -63,7 +69,8 @@ def denoise_depth_map_tvl1(D, I_ref, alpha=10.0, beta=1.0, lambda_data=1.0, num_
         # lambda_data controls the trade-off between the data term and smoothing
         D_prime = D + np.clip(v - D, -tau * lambda_data, tau * lambda_data)
         
-        # Over-relaxation
+        # Decaying over-relaxation (theta is initially 1 but gradually decreases)
+        theta = 1.0 / np.sqrt(1.0 + 0.5 * i)
         D_bar = D_prime + theta * (D_prime - D_old)
         
     # Preserve invalid regions - don't fill in depth where there was none
