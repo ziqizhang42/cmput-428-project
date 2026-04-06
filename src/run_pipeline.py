@@ -30,9 +30,8 @@ POISSON_DEPTH = 8 # base surface resolution
 SIGMA = 5.0 # depth smoothing sigma
 OVERLAP_THRESH = 0.3 # V_r for reference selection (Section 2.7)
 BUNDLE_WINDOW = 30 # temporal window for comparison selection
-OUTPUT_PATH = "reconstruction.ply"
-
-DEBUG_DIR: Path = Path("debug")
+OUTPUT_PATH = ""  # set from workspace arg
+DEBUG_DIR = Path(".")  # set from workspace arg
 
 def load_grayscale(path: Path) -> np.ndarray:
     """Load image as float64 grayscale in [0, 1]."""
@@ -117,7 +116,7 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
     m.triangles = o3d.utility.Vector3iVector(before_mesh.faces)
     m.compute_vertex_normals()
 
-    output_path = Path("workspace/dense_before_sceneflow_bundle_{}.ply".format(bundle_index))
+    output_path = DEBUG_DIR / f"before_sceneflow_bundle_{bundle_index}.ply"
     o3d.io.write_triangle_mesh(str(output_path), m)
 
     if np.sum(depth > 0) == 0:
@@ -237,6 +236,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     workspace = Path(sys.argv[1])
+    DEBUG_DIR = workspace / "debug"
+    OUTPUT_PATH = str(workspace / "reconstruction.ply")
     recon_path = workspace / "dense" / "sparse"
     image_dir  = workspace / "dense" / "images"
 

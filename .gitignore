@@ -1,8 +1,7 @@
 .venv/
 __pycache__/
 
-workspace/*
-!workspace/.gitkeep
-!workspace/dense/
+datasets/*/*
+!datasets/*/dense/
 
 .DS_Store

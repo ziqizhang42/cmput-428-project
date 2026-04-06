@@ -238,7 +238,7 @@ if __name__ == "__main__":
         level=logging.DEBUG,
     )
 
-    workspace = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("workspace")
+    workspace = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("")
     recon_path = workspace / "dense" / "sparse"
     image_dir  = workspace / "dense" / "images"
 
