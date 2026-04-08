@@ -3,5 +3,6 @@ __pycache__/
 
 datasets/*/*
 !datasets/*/dense/
+!datasets/*/reconstruction.py
 
 .DS_Store
