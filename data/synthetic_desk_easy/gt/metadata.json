@@ -1,0 +1,18 @@
+{
+  "dataset_name": "synthetic_desk_easy",
+  "generator_version": "v1",
+  "scene_units": "meters",
+  "difficulty": "easy",
+  "render_settings": {
+    "lighting": "fixed_lambertian",
+    "motion_blur": false,
+    "sensor_noise": false,
+    "moving_objects": false
+  },
+  "trajectory": {
+    "type": "arc",
+    "frame_count": 128,
+    "width": 1280,
+    "height": 720
+  }
+}

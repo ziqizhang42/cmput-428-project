@@ -256,8 +256,12 @@ if __name__ == "__main__":
         level=logging.DEBUG,
     )
     if len(sys.argv) < 2:
-        logger.error("Usage: python s1_sfm.py <image_dir>")
+        logger.error("Usage: python s1_sfm.py <image_dir> [workspace_dir]")
         sys.exit(1)
-    result = run_sfm(sys.argv[1])
+
+    image_dir = sys.argv[1]
+    workspace_dir = sys.argv[2] if len(sys.argv) > 2 else ""
+
+    result = run_sfm(image_dir, workspace_dir)
     logger.info(f"{len(result.keyframes)} keyframes, {len(result.sparse_points)} 3D points")
     logger.info("Done")
