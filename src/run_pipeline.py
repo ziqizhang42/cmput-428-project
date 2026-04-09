@@ -146,8 +146,9 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
 
             # valid mask tells us which pixels of the image prediction are valid
             predicted, valid_mask = get_view_prediction(img_ref_tex, depth_comp, ref.pose, comp_kf.pose, camera)
+            predicted_example, _ = get_view_prediction(img_ref, depth_comp, ref.pose, comp_kf.pose, camera)
 
-            cv2.imwrite(str(it_dir / f"predicted_{j}.png"), (np.clip(predicted, 0, 1) * 255).astype(np.uint8))
+            cv2.imwrite(str(it_dir / f"predicted_{j}.png"), (np.clip(predicted_example, 0, 1) * 255).astype(np.uint8))
             
             # Convert to correct format
             predicted = predicted.astype(np.float32)

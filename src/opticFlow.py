@@ -271,15 +271,18 @@ def get_forward_backward_mask(flow_fw: np.ndarray, flow_bw: np.ndarray) -> np.nd
 
     sampled_bw = np.stack([sampled_bw_x, sampled_bw_y], axis=-1)
 
-    # Calculate the norm of the round-trip error
-    round_trip_error = np.linalg.norm(flow_fw + sampled_bw, axis=-1)
+    # Squared norm of forward + backward (LHS)
+    fb_error_sq = np.sum((flow_fw + sampled_bw) ** 2, axis=-1)
 
-    # Get adaptive threshold
-    flow_magnitude = np.linalg.norm(flow_fw, axis=-1)
-    adaptive_threshold = np.maximum(1.0, 0.05 * flow_magnitude)
+    # Squared norms of individual flows
+    fw_sq = np.sum(flow_fw ** 2, axis=-1)
+    bw_sq = np.sum(sampled_bw ** 2, axis=-1)
+
+    # RHS threshold from paper
+    threshold = 0.01 * (fw_sq + bw_sq) + 0.5
 
     # Create a boolean mask where the error is below the threshold
-    valid_mask = round_trip_error < adaptive_threshold
+    valid_mask = fb_error_sq < threshold
 
     # Also invalidate pixels that mapped outside the image boundaries
     in_bounds = ((remap_x >= 0) & (remap_x < w) & (remap_y >= 0) & (remap_y < h))
