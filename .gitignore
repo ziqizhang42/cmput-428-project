@@ -4,5 +4,6 @@ __pycache__/
 datasets/*/*
 !datasets/*/dense/
 !datasets/*/reconstruction.py
+!datasets/*/reconstruction_textured.ply
 
 .DS_Store

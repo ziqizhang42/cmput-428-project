@@ -365,4 +365,10 @@ if __name__ == "__main__":
     global_model = GlobalModel(vertices=np.asarray(final_o3d.vertices), faces=np.asarray(final_o3d.triangles), normals=np.asarray(final_o3d.vertex_normals))
 
     export_ply(global_model, OUTPUT_PATH)
+
+    logger.info("Texturing and saving final reconstruction mesh...")
+    final_mesh = BaseMesh(vertices=global_model.vertices, faces=global_model.faces, normals=global_model.normals)
+    final_colors = texture_mesh(final_mesh, sfm_result)
+    save_textured_mesh(final_mesh, final_colors, workspace / "reconstruction_textured.ply")
+
     logger.info(f"Done: {bundle_index} bundles, {len(global_model.vertices)} vertices")
