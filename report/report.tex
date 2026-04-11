@@ -68,12 +68,16 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
 % ── 2. Related Work ───────────────────────────────────────────────────────────
 \section{Related Work}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+The inspiration for this project is the work presented in [1], which introduces a method for generating dense 3D reconstructions by leveraging a sparse base produced using structure-from-motion (SfM). The appeal of this approach is the ability to take a coarse initial model and iteratively refine it into a high accuracy final model. Our implementation focuses on the core pipeline described in this system, specifically the transition from sparse mapping to dense surface estimation through scene-flow updates computed using view-predictive optical flow.
+
+A critical component of monocular reconstruction is the underlying tracking and mapping system. The original system in [1] utilizes Parallel Tracking and Mapping (PTAM) [2] to provide real-time camera poses and a sparse point cloud. However, due to the limited availability of PTAM implementations compatible with Python, we substituted this component with ColMap [3], another SfM library which was readily availanle. While ColMap is typically used for offline processing, it provides the sparse foundation necessary to test the subsequent dense reconstruction stages.
+
+The methods for dense reconstruction from a single camera involved many complex optimization problems. The methods described in [1] frequently utilize Variational methods for global energy minimization, such as the TV-L1 optical flow algorithm discussed in [4] and the denoising technique mentioned in [1]. These methods ensure that the final product both aligns with what's seen in  the video while still retaining smoothness. In our implementation, we utilize Poisson reconstruction [5] to generate a base mesh from the initial sparse data, which is then used for further refinement. Although the reference paper [1] emphasizes live performance, our project prioritizes the algorithmic pipeline's ability to enhance model fidelity and photo-consistency by building upon existing SfM data.
 
 % ── 3. Methods ────────────────────────────────────────────────────────────────
 \section{Methods}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Our project implementation is split into seven pipeline stages. First, we use SfM to obtain a sparse point cloud and camera matrices. Second, we generate a base mesh via Poisson reconstruction. Third, we perform keyframe selection to establish bundles for refinement. Fourth, we predict views from the current mesh to analyze discrepancies using optical flow. Fifth, we update mesh vertices based on these flow results to refine the reconstruction. Sixth, we apply a denoising algorithm to ensure spatial smoothness. Finally, we integrate the refined output into a global representation of the entire scene.
 
 \subsection{Overview}
 
@@ -116,19 +120,29 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit.
 \begin{thebibliography}{99}
 
 \bibitem{ref1}
-A.~Author, B.~Author, and C.~Author.
-\newblock Title of the first referenced work.
-\newblock In \textit{Proceedings of the Conference Name}, pages 1--10, 2024.
+R.~A. Newcombe and A. J. Davison.
+\newblock Live dense reconstruction with a single moving camera.
+\newblock \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 2010.
 
 \bibitem{ref2}
-D.~Author and E.~Author.
-\newblock Title of the second referenced work.
-\newblock \textit{Journal Name}, 12(3):100--120, 2023.
+G.~Klein and D.~Murray.
+\newblock Parallel tracking and mapping for small AR workspaces.
+\newblock \textit{Proceedings of the International Symposium on Mixed and Augmented Reality (ISMAR)}, 2007.
 
 \bibitem{ref3}
-F.~Author.
-\newblock Title of a third referenced work.
-\newblock Technical Report TR-2022-01, University of X, 2022.
+J.~L. Schönberger and J.~M. Frahm.
+\newblock Structure-from-motion revisited.
+\newblock \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 2016.
+
+\bibitem{ref4}
+C.~Zach, T.~Pock, and H.~Bischof.
+\newblock A duality based approach for realtime TV-L1 optical flow.
+\newblock \textit{Proceedings of the Joint Pattern Recognition Symposium}, 2007.
+
+\bibitem{ref5}
+M.~Kazhdan, M.~Bolitho, and H.~Hoppe.
+\newblock Poisson surface reconstruction.
+\newblock \textit{Proceedings of the Eurographics Symposium on Geometry Processing (SGP)}, 2006.
 
 \end{thebibliography}
 \endgroup
