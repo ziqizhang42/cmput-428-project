@@ -144,6 +144,27 @@ An example of the base mesh produced by this pipeline is shown in Figure~\ref{fi
     \label{fig:base_mesh}
 \end{figure}
 
+\subsection{Bundle Selection}
+
+The subsequent refinement stages operates on a \textit{bundle} each consisting of one reference frame and $n$ comparison frames. The reference supplies the depth map that is to be refined, while the comparisons provide the additional views whose optical flow drives the scene flow update. The choice of these frames is important: too few comparisons or a poor distribution of baselines leads directly to the aperture problem in the flow computation, while redundant comparisons waste computation without improving the conditioning of the linear system.
+
+Newcombe and Davison \cite{newcombe2010} solve this problem online using a rolling buffer of the most recent 60 frames. A new reference frame is initialised whenever the co-visibility $V_r$ of the previous reference with the current camera drops below a threshold $\epsilon_r = 0.3$, where $V_r$ is computed by rendering the base surface from both poses and measuring the fraction of reference pixels that remain visible. For each new reference, they then wait until the co-visibility $V_c$ of a subsequent frame with the reference drops below $\epsilon_c = 0.7$, at which point the last 60 frames are searched for the $n$ comparisons whose translations are most evenly distributed around the reference view direction, which maximises the baseline of the bundle and helps mitigate the aperture problem in the subsequent dense flow computation.
+
+We follows the same structure in our implimentation: begin by walking through the keyframes in order and running the same co-visibility test as \cite{newcombe2010}. For each candidate we render the base mesh from both its pose and the pose of the current reference, and measure the fraction of reference-frame pixels whose rays hit the surface and are also hit from the candidate view. A candidate becomes a new reference whenever this overlap falls below $\epsilon_r = 0.3$, matching the paper's threshold. Candidates whose coverage of the base mesh is itself below $10\%$ are skipped outright, as they cannot meaningfully contribute to any refinement.
+
+For each selected reference, we then form a buffer of co-visible neighbours and choose $n$ comparisons from it. Rather than maximising raw translational disparity, we make the angular criterion explicit: given the reference viewing direction $\mathbf{d}$, we project each candidate's translation vector $\mathbf{t}_{c} - \mathbf{t}_{ref}$ onto the plane perpendicular to $\mathbf{d}$ and record its azimuth $\varphi \in [0, 2\pi)$.
+Candidates whose baseline lies outside a minimum and maximum range, or whose own view direction deviates from $\mathbf{d}$ by more than $20^\circ$, are discarded so that the comparison cameras look at roughly the same portion of the scene as the reference.
+We then select the $n$ comparisons greedily: the first is the one with the largest baseline, and each subsequent comparison is chosen to maximise the smallest circular distance in $\varphi$ to all already-selected comparisons.
+This recovers the ``distributed around the reference view'' property from \cite{newcombe2010} in a form that is cheap to evaluate.
+The resulting bundles are consumed by the view-prediction and scene-flow stages described next.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{henry_desk_bundle_reference.png}
+    \caption{Approximate reference frames for \textit{Henry's desk} in our pipeline.}
+    \label{fig:henry_desk_bundle_reference}
+\end{figure}
+
 \subsection{View-Predictive Optical Flow}
 \subsubsection{View-Prediction}
 The purpose of the view prediction stage is to generate a virtual image that represents how a scene should appear from the perspective of a specific comparison camera, given our current 3D reconstruction. Following the methodology in [1], this "synthetic" view serves as a intermediate step for computing view-predictive optical flow. By comparing the predicted image with the actual captured image from the comparison pose, the system can identify discrepancies caused by inaccuracies in the base mesh.
