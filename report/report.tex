@@ -255,7 +255,7 @@ While this could in general be solved by least-squares matrix factorization meth
     \lambda_j = \frac{\sum_{a=1}^{2n} k_a u_a}{\sum_{a=1}^{2n} k_a^2}
 \end{equation}
 
-where $k_a$ and $u_a$ are the scalar elements of $\mathbf{K}_j$ and $\Delta\mathbf{u}_j$ respectively. The primary reason we use this formulation is particularly convenient in our implementation because it allows us to apply the valid pixel mask from Section 3.1 and the forward-backward consistency mask from Section 3.1.4 by simply skipping invalid pixels when we perform the accumulation of the numerator and denominator. The updated world point is then:
+where $k_a$ and $u_a$ are the scalar elements of $\mathbf{K}_j$ and $\Delta\mathbf{u}_j$ respectively. The primary reason we use this formulation in our implementation because it allows us to apply the valid pixel mask from Section 3.1 and the forward-backward consistency mask from Section 3.1.4 by simply skipping invalid pixels when we perform the accumulation of the numerator and denominator. The updated world point is then:
 
 \begin{equation}
     \mathbf{x}'_j = \mathbf{x}_j + \mathbf{r}_j \lambda_j
