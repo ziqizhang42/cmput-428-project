@@ -83,7 +83,7 @@ Our project implementation is split into seven pipeline stages. First, we use Sf
 
 \subsection{Overview}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+In this section we walk through each of the stages listed above in the order that the pipeline executes them, detailing both our implementation choices and the places where we deviate from \cite{newcombe2010}. We illustrate each stage with intermediate outputs from a single running example throughout: a handheld video of a cluttered desk scene of \textit{Henry's desk}.
 
 \subsection{Structure from Motion}
 
@@ -104,7 +104,14 @@ Given a directory of frames, we run feature extraction under this pinhole camera
 Following this we call COLMAP's image undistortion routine so that all subsequent stages may assume a pure pinhole projection, which is an assumption implicit in both the view-prediction of Section 3.3 and the projection Jacobian of Section 3.4 of \cite{newcombe2010}.
 The undistorted reconstruction is then parsed into a \texttt{CameraModel} holding $K$ and image dimensions, a list of \texttt{Keyframe}s storing world-to-camera pose $(R, t)$ and the $3\times 4$ projection matrix $P = K[R | t]$, and a list of \texttt{SparsePoint}s.
 
-To remove invalid triangulations that would otherwise corrupt the base mesh, we filter the COLMAP point cloud by discarding all points whose track length is too low or whose mean reprojection error is too high. Note that the point cloud produced by COLMAP is unoriented but the Poisson reconstruction used in the next stage requires consistently oriented surface normales. This means that we have to estimate a normal at each surviving point by averaging the (negated) viewing directions of every camera that observes it. This should guarantee that the resulting normal points back toward the cameras that saw the surface and thus faces outward from the object.
+To remove invalid triangulations that would otherwise corrupt the base mesh, we filter the COLMAP point cloud by discarding all points whose track length is too low or whose mean reprojection error is too high. Note that the point cloud produced by COLMAP is unoriented but the Poisson reconstruction used in the next stage requires consistently oriented surface normales. This means that we have to estimate a normal at each surviving point by averaging the (negated) viewing directions of every camera that observes it. This should guarantee that the resulting normal points back toward the cameras that saw the surface and thus faces outward from the object. An example of the resulting sparse point cloud is shown below (Figure~\ref{fig:sparse_point_cloud}).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{henry_desk_sparse_point_cloud.png}
+    \caption{Sparse point cloud produced by COLMAP on \textit{Henry's desk} after filtering.}
+    \label{fig:sparse_point_cloud}
+\end{figure}
 
 \subsection{Base Mesh Construction}
 
@@ -128,7 +135,14 @@ Finally, we apply some small number of Taubin smoothing iterations to smooth out
 
 In order to interface with the next (view-prediction) stage, the cleaned mesh is loaded into an Open3D raycasting scene once and reused across all keyframes. So given a camera pose and intrinsics, we generate a ray bundle and cast it against the mesh, recording each pixel the Euclidean distance from the camera center to the intersection.
 Pixels whose rays miss the surface (for example, background regions or holes left by the cleanup above) are marked with zero depth and propagate to the view prediction as invalid so they are later excluded from the scene flow update. The resulting depth maps form the direct input to the view-predictive optical flow stage described next.
-An example of the base mesh produced by this is shown in Figure~\ref{fig:sceneflow_comparison}(a).
+An example of the base mesh produced by this pipeline is shown in Figure~\ref{fig:base_mesh}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{henry_desk_base_mesh.png}
+    \caption{Base mesh produced by Poisson surface reconstruction on \textit{Henry's desk} after cleanup.}
+    \label{fig:base_mesh}
+\end{figure}
 
 \subsection{View-Predictive Optical Flow}
 \subsubsection{View-Prediction}
