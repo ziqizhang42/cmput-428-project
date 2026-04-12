@@ -204,7 +204,7 @@ Unfortunately, in cases where the pixels land outside of the image boundary or t
     \centering
     \includegraphics[width=\columnwidth]{predicted_0.png}
     \caption{An Image prediction generated using algorithm 1}
-    \label{fig:your_label}
+    \label{fig:view_prediction}
 \end{figure}
 
 \subsubsection{Optical Flow}
@@ -253,7 +253,7 @@ A known limitation of intensity-based optical flow is its sensitivity to illumin
     \centering
     \includegraphics[width=\columnwidth]{predicted_0.png}
     \caption{An Image prediction generated using algorithm 1}
-    \label{fig:your_label}
+    \label{fig:structure_texture}
 \end{figure}
 
 \subsubsection{Forward-Backward Consistency}
@@ -290,7 +290,7 @@ The optical flow $\Delta\mathbf{u}^i_j$ for each comparison camera $i$ is obtain
     \centering
     \includegraphics[width=\columnwidth]{sceneflow_diagram.png}
     \caption{Geometry of our scene flow update. All updates to the base surface vertices are constrained along viewing rays of the reference camera.}
-    \label{fig:your_label}
+    \label{fig:sceneflow_diagram}
 \end{figure}
 
 \subsubsection{Ray Constraint}
@@ -359,6 +359,40 @@ and the new depth map is recovered as the Euclidean distance from the reference 
 \subsubsection{Iterative Refinement}
 
 Because the linearization of the projection function is only valid for small displacements, the update derived above is an approximation that improves as $\mathbf{x}_j$ approaches the true surface. Additionally, the formulation above can also be derived using Gauss-Newton, meaning that this process is a non-linear optimization problem. We therefore iterate the full process: after each depth update, the new depth map is denoised and retriangulated into a mesh, and optical flow is recomputed between a fresh view prediction from the updated mesh and each comparison image. This produces new, smaller flow residuals that drive a further correction. Following \cite{newcombe2010}, this outer loop runs for up to three iterations, or until the mean reprojection error falls below a certain threshold. In order to ensure that the depth map remains smooth while not falsely inducing smoothness along sharp edges, we apply the TV-L$^1$ described in the following section to denoise after each scene flow update.
+
+\subsection{Global Integration}
+
+The scene flow stage produces a refined depth map for a bunch of bundles, but our final goal is a single mesh covering the entire scene. In order to achieve this, we need to convert each depth map into a triangle mesh and then merge them into a running global model. We need to do this without duplicating geometry where (consecutive) bundles overlap.
+
+\subsubsection{Per-Bundle Triangulation}
+
+We are given a depth map $\mathbf{D}$ from a (reference) pose $(R_{ref}, t_{ref})$. From this we can recover a 3D vertex for each (valid) pixel by back-projecting along its reference ray (Eq.~(9) of \cite{newcombe2010}):
+\begin{equation}
+    \mathbf{v}_j = \mathbf{D}(\mathbf{u}_j) \mathbf{r}_j + \mathbf{t}_{ref},
+\end{equation}
+here $\mathbf{r}_j$ is the (unit) reference ray (Section 3.5.1 of \cite{newcombe2010}). Now we can triangulate: each $2\times 2$ block of valid pixels is split into two triangles along its diagonal. This procduces something that is dense and consistent across bundles. Per-vertex normals are then obtained from central finite differences of the back-projected grid: $\mathbf{n}_j = \Delta\mathbf{v}_x \times \Delta\mathbf{v}_y$. This is the same construction as \cite{newcombe2010}.
+
+\subsubsection{Surface Error Filtering}
+
+The scene flow update additionally produces two error measures at every pixel: 1. value error $E^v$ which is the residual of the linear system the depth update was the solution to, and 2. a surface error $E^s$ that measures reprojection error of the (updated) point in the comparison cameras.
+We follow \cite{newcombe2010} and drop vertices whose errors measure above point to the (local) solve as being unreliable. Concretely, we keep vertices using:
+\begin{equation}
+    \neg (E^v_j < \tau_v \wedge E^s_j > \tau_s),
+\end{equation}
+which is the inverse of the reject condition implemented in our code. We set our thresholds to $\tau_v = 0.9$ and $\tau_s = 0.001$. Faces whose three vertices do not all survive the filter are removed. Optionally, we also support a variant of the surface threshold in which $\tau_s$ is set to the 75th percentile of the valid surface errors observed in the current bundle, which could make the filter more robust.
+
+\subsubsection{Fusion}
+
+Once a per-bundle mesh has been triangulated and filtered, we fuse it into the running global model in the following way. Not that naively concatenating meshes would leave duplicated and slightly inconsistent geometry wherever multiple bundles overlap. \cite{newcombe2010} avoid this by removing from each new mesh all vertices whose distance to the integrated surface is below a small threshold $\epsilon_{dist}$. We adopt the same strategy.
+
+Finally, from the bundle's reference pose, we render the (current) global model using Open3D. This produces a $z$-depth map $z_{glob}(\mathbf{u})$ that is aligned to the reference image grid. Each new vertex $\mathbf{v}_j$ is then projected into the reference view: $\mathbf{u}_j = \pi(K, R_{ref}, t_{ref}, \mathbf{v}_j)$. We drop whenever there is already nearby geometry along the same viewing ray:
+\begin{align}
+    \text{discard } \mathbf{v}_j \quad \text{iff} \quad & z_{glob}(\mathbf{u}_j) > 0 \nonumber \\
+    & \wedge |z_j - z_{glob}(\mathbf{u}_j)| < \epsilon_{dist},
+\end{align}
+where $z_j$ is $z$-coordinate of $\mathbf{v}_j$ (in camera-frame). We discrard Vertices that either project outside the image bounds or that fall behind the reference camera. The surviving vertices and their faces are appended to the global vertex and face arrays, yielding the next iteration of the global model. We use $\epsilon_{dist} = 0.01$ in scene units, which is comparable to the per-vertex baseline of the bundles in our datasets.
+
+One small deviation from \cite{newcombe2010} is that we run a few Taubin smoothing iterations on each bundle's mesh before fusing it, which should clean up the high-frequency noise from the triangulation without shrinking the mesh. This is done locally, so it does not propagate across bundles. After every bundle has been integrated, the resulting global model is exported as a PLY file for evaluation.
 
 % ── 4. Experiments ────────────────────────────────────────────────────────────
 \section{Experiments}
