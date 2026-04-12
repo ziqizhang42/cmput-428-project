@@ -394,18 +394,77 @@ Because the linearization of the projection function is only valid for small dis
 
 \subsection{Depth Map Denoising}
 
-As mentioned in \cite{newcombe2010}, when our current model is inaccurate, our image prediction algorithm can induce false discontinuities, in order to help alleviate this issue, we can apply smoothing. By smoothing the depth map in the reference frame, and then retriangulating, we can obtain a new mesh with fewer of these discontinuities. In said paper, there are 2 denoising functions which are mentioned that can be used here: A Gaussian Kernel with a support of 15 pixels or a TV-L$^1$ denoising algorithm. In practice, we decided to use the TV-L$^1$ algorithm, wherein we find a $\mathbf{D'}$ that minimizes the following function:
+As noted by Newcombe and Davison \cite{newcombe2010}, inaccuracies in the 
+current 3D model can cause the view prediction step to induce false 
+discontinuities in the synthesized image. To alleviate this, we apply a 
+denoising step to the reference-frame depth map before retriangulating the 
+mesh for the next iteration. While a Gaussian kernel with a 15-pixel support 
+is suggested as a simpler alternative, we instead utilize a $g$-weighted 
+TV-$L^1$ denoising algorithm, which preserves sharp depth boundaries at 
+object edges while smoothing noise in homogeneous regions.
+
+The algorithm seeks a denoised depth map $D'$ that minimizes:
+\begin{equation}
+E_d = \int_\Omega \lambda |D(\mathbf{x}) - D'(\mathbf{x})| \, d\mathbf{x} 
+    + \int_\Omega g(\mathbf{x}) |\nabla D'(\mathbf{x})| \, d\mathbf{x}
+\end{equation}
+where the first term enforces data fidelity to the original depth $D$ via 
+the robust $L^1$ norm, and the second term is a $g$-weighted Total Variation 
+regularizer. The edge-aware weight $g$ is derived from the spatial gradient 
+of the reference image:
 
 \begin{equation}
-\mathbf{E_d} = \int_\Omega\gamma|\mathbf{D(x)}-\mathbf{D'(x)}|d\mathbf{x}+\int_\Omega g(\mathbf{x})|\nabla\mathbf{D'(x)}|d\mathbf{x}
+g(|\nabla I_{ref}|)=\exp(-\alpha|\nabla I_{ref}|^\beta)
 \end{equation}
 
-Our main reasoning for selecting the TV-L$^1$ algorithm over the, perhaps simpler, gaussian smoothing, is it's ability to preserve edges. The weight function $g$, is applied to the magnitude of the spatial gradient of the reference image $\nabla I_{ref}$ and maps it between 0 and 1 with the following formulation: $g(|\nabla I_{ref}|)=\exp(-\alpha|\nabla I_{ref}|^\beta)$. As can be seen, the weight will be large when the spatial gradient is small and vice-versa. Since the spatial gradient serves as a form of edge detection, as the value will only be large when there are sudden changes in the image intensity, this weight function ensures that sudden changes in depth will not be penalized if they occur across an edge. While \cite{newcombe2010}, specifies their parameters as $\alpha=10$ and $\beta = 1$, we found that these parameters were inaccurate, often inducing excessive changes in depth wherever there is even the slightest hint of an edge. This resulted in objects which were highly textured having many smaller discontinuities unlike the smoothness present in reality, as seen in figure ~\ref{denoise}. ****ADD SECTION DISCUSSING BEST VALUES FOR ALPHA AND BETA
+As can be seen, the weight will be large when the spatial gradient is small and vice-versa, which implies that the minimization allows for sudden shifts in depth along an edge.
+
+The function is minimized using a first-order primal-dual scheme similar to that used for optical flow. An important  implementation detail is that gradients are only computed between pairs of pixels that both have valid depth ($D > 0$), preventing holes in the depth map from pulling adjacent valid regions toward zero through the regularization term. The numerical procedure is outlined in Algorithm~\ref{alg:denoise}.
+
+\begin{algorithm}[H]
+\caption{$g$-weighted TV-$L^1$ Depth Denoising}
+\label{alg:denoise}
+\begin{algorithmic}[1]
+    \Require Depth $D$, reference image $I_{ref}$, 
+             parameters $(\alpha, \beta, \lambda, \tau, \sigma, N_{it})$
+    \Ensure Denoised depth map $D'$
+    \Statex \textbf{Preprocessing:}
+    \State Compute gradients $\nabla I_{ref}$ and gradient magnitude 
+           $|\nabla I_{ref}|$
+    \State $g \gets \exp\!\left(-\alpha \cdot 
+           \left(|\nabla I_{ref}|\right)^\beta\right)$
+    \State $M \gets \mathbf{1}[D > 0]$ \Comment{Valid pixel mask}
+    \Statex \textbf{Initialization:}
+    \State $D' \gets D,\quad \bar{D} \gets D,\quad \mathbf{p} \gets \mathbf{0}$
+    \Statex \textbf{Optimization Loop:}
+    \For{$i = 1$ \textbf{to} $N_{it}$}
+        \State $D'_{old} \gets D'$
+        \State $\nabla \bar{D} \gets $ forward differences of $\bar{D}$, 
+               masked by $M$ between pixel pairs
+        \State $\tilde{\mathbf{p}} \gets \mathbf{p} + \sigma \nabla \bar{D}$
+        \State $\mathbf{p} \gets \tilde{\mathbf{p}} \;/\; 
+               \max\!\left(1,\; |\tilde{\mathbf{p}}| / g\right)$
+               \Comment{Project dual onto $\|\mathbf{p}\|_\infty \leq g$}
+        \State $v \gets D' + \tau\, \mathrm{div}(\mathbf{p})$
+        \State $D' \gets D + \mathrm{clip}(v - D,\; -\tau\lambda,\; \tau\lambda)$
+               \Comment{$L^1$ proximal step}
+        \State $\theta \gets 1 / \sqrt{1 + 0.5i}$
+        \State $\bar{D} \gets D' + \theta(D' - D'_{old})$
+               \Comment{Over-relaxation}
+    \EndFor
+    \State $D'[D \leq 0] \gets 0$ \Comment{Preserve invalid regions}
+    \State \Return $D'$
+\end{algorithmic}
+\end{algorithm}
+
+Although \cite{newcombe2010} recommends $\alpha = 10$ and $\beta = 1$, we found that these parameters were inaccurate, often inducing excessive changes in depth wherever there is even the slightest hint of an edge. This resulted in objects which were highly textured having many smaller discontinuities unlike the smoothness present in reality, as seen in figure ~\ref{denoise}.
 
 \begin{figure}[h]
     \centering
     \includegraphics[width=\columnwidth]{denoise_example.png}
-    \caption{Mesh after performing a denoising step, shows sudden depth changes on areas which are flat in reality}
+    \caption{Mesh after denoising with $\alpha=10$ and global gradient 
+             normalization, showing spurious depth steps on surfaces that 
+             are flat in reality.}
     \label{denoise}
 \end{figure}
 
