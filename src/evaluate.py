@@ -52,6 +52,10 @@ class SyntheticDataset:
     def mesh_path(self) -> Path:
         return self.gt_dir / "scene_mesh.ply"
 
+    @property
+    def foreground_mesh_path(self) -> Path:
+        return self.gt_dir / "foreground_mesh.ply"
+
 @dataclass
 class DepthMetrics:
     absrel_pct: float
@@ -186,7 +190,7 @@ def select_sample_names(sfm, frames_by_name, n_frames):
     idx = np.linspace(0, len(matched) - 1, n_pick, dtype=int)
     return [matched[i] for i in idx]
 
-def compute_absrel(mesh_scene, frames_by_name, camera_model, sample_names):
+def compute_absrel(mesh_scene, frames_by_name, camera_model, sample_names, gt_depth_scene=None):
     all_rel = []
     overlap_pixels = 0
     gt_valid_pixels = 0
@@ -195,7 +199,10 @@ def compute_absrel(mesh_scene, frames_by_name, camera_model, sample_names):
         if gt_frame is None:
             continue
         rendered_z = render_z_depth(mesh_scene, gt_frame.pose(), camera_model)
-        gt_depth = load_gt_depth(gt_frame.depth_z_path, camera_model)
+        if gt_depth_scene is None:
+            gt_depth = load_gt_depth(gt_frame.depth_z_path, camera_model)
+        else:
+            gt_depth = render_z_depth(gt_depth_scene, gt_frame.pose(), camera_model)
         gt_valid = gt_depth > 0
         valid = (rendered_z > 0) & gt_valid
         gt_valid_pixels += int(gt_valid.sum())
@@ -224,26 +231,65 @@ def compute_surface(aligned_mesh, gt_mesh, sample_points=50000):
     return float(np.mean(pred_to_gt)), float(np.mean(gt_to_pred))
 
 def evaluate_mesh(name, mesh_path, frames_by_name, camera_model,
-                  scale, rot, trans, gt_mesh, sample_names):
+                  scale, rot, trans, depth_targets, surface_targets, sample_names):
     mesh = load_mesh(mesh_path)
     aligned_mesh = align_mesh_sim3(mesh, scale, rot, trans)
     mesh_scene = mesh_to_scene(aligned_mesh)
-    depth = compute_absrel(mesh_scene, frames_by_name, camera_model, sample_names)
-    accuracy, completeness = compute_surface(aligned_mesh, gt_mesh)
     print()
     print(f"{name} ({mesh_path.name})")
-    print(f"AbsRel (overlap): {depth.absrel_pct:.2f} %")
-    print(f"Depth overlap: {depth.overlap_pct:.2f} % ({depth.overlap_pixels}/{depth.gt_valid_pixels} GT-valid pixels)")
-    print(f"Accuracy: {accuracy:.4f} m")
-    print(f"Completeness: {completeness:.4f} m")
 
-def resolve_gt_mesh_path(dataset: SyntheticDataset, surface_gt: str) -> Path:
-    if surface_gt == "foreground":
-        path = dataset.gt_dir / "foreground_mesh.ply"
+    for target_name, gt_depth_scene in depth_targets:
+        depth = compute_absrel(mesh_scene, frames_by_name, camera_model, sample_names, gt_depth_scene)
+        print(f"Depth [{target_name}] AbsRel (overlap): {depth.absrel_pct:.2f} %")
+        print(
+            f"Depth [{target_name}] overlap: "
+            f"{depth.overlap_pct:.2f} % ({depth.overlap_pixels}/{depth.gt_valid_pixels} GT-valid pixels)"
+        )
+
+    for target_name, gt_mesh in surface_targets:
+        accuracy, completeness = compute_surface(aligned_mesh, gt_mesh)
+        print(f"Surface [{target_name}] Accuracy: {accuracy:.4f} m")
+        print(f"Surface [{target_name}] Completeness: {completeness:.4f} m")
+
+def selected_targets(selection: str) -> list[str]:
+    if selection == "both":
+        return ["foreground", "scene"]
+    return [selection]
+
+def resolve_gt_mesh_paths(dataset: SyntheticDataset, surface_gt: str) -> list[tuple[str, Path]]:
+    paths = []
+    for target in selected_targets(surface_gt):
+        if target == "foreground":
+            path = dataset.foreground_mesh_path
+            if not path.exists():
+                raise FileNotFoundError(f"Foreground GT mesh not found: {path}")
+        else:
+            path = dataset.mesh_path
+        paths.append((target, path))
+    return paths
+
+def load_surface_targets(dataset: SyntheticDataset, surface_gt: str):
+    targets = []
+    for target_name, path in resolve_gt_mesh_paths(dataset, surface_gt):
+        mesh = o3d.io.read_triangle_mesh(str(path))
+        if mesh.is_empty() or len(mesh.triangles) == 0:
+            raise RuntimeError(f"Empty GT mesh: {path}")
+        targets.append((target_name, mesh))
+    return targets
+
+def resolve_depth_gt_scene(dataset: SyntheticDataset, depth_gt: str):
+    if depth_gt == "scene":
+        return None
+    if depth_gt == "foreground":
+        path = dataset.foreground_mesh_path
         if not path.exists():
             raise FileNotFoundError(f"Foreground GT mesh not found: {path}")
-        return path
-    return dataset.mesh_path
+        mesh = load_mesh(path)
+        return mesh_to_scene(mesh)
+    raise ValueError(f"Unknown depth GT target: {depth_gt}")
+
+def load_depth_targets(dataset: SyntheticDataset, depth_gt: str):
+    return [(target, resolve_depth_gt_scene(dataset, target)) for target in selected_targets(depth_gt)]
 
 def main():
     parser = argparse.ArgumentParser()
@@ -252,9 +298,15 @@ def main():
     parser.add_argument("--frames", type=int, default=10, help="Number of frames for depth eval")
     parser.add_argument(
         "--surface-gt",
-        choices=("scene", "foreground"),
-        default="scene",
-        help="GT mesh used for surface metrics. Use 'scene' to match full-scene GT depth.",
+        choices=("scene", "foreground", "both"),
+        default="both",
+        help="GT mesh used for surface metrics.",
+    )
+    parser.add_argument(
+        "--depth-gt",
+        choices=("scene", "foreground", "both"),
+        default="both",
+        help="GT geometry used for depth metrics.",
     )
     args = parser.parse_args()
 
@@ -265,11 +317,10 @@ def main():
     sfm, scale, rot, trans = load_context(workspace, dataset)
     sample_names = select_sample_names(sfm, frames_by_name, args.frames)
 
-    gt_mesh_path = resolve_gt_mesh_path(dataset, args.surface_gt)
-    gt_mesh = o3d.io.read_triangle_mesh(str(gt_mesh_path))
-    if gt_mesh.is_empty() or len(gt_mesh.triangles) == 0:
-        raise RuntimeError(f"Empty GT mesh: {gt_mesh_path}")
-    print(f"Surface GT: {gt_mesh_path}")
+    depth_targets = load_depth_targets(dataset, args.depth_gt)
+    surface_targets = load_surface_targets(dataset, args.surface_gt)
+    print(f"Depth GT: {', '.join(name for name, _ in depth_targets)}")
+    print(f"Surface GT: {', '.join(name for name, _ in surface_targets)}")
 
     methods = []
     base_path = workspace / "initial_textured_poisson.ply"
@@ -282,7 +333,18 @@ def main():
         raise FileNotFoundError(f"No meshes found in {workspace}")
 
     for name, mesh_path in methods:
-        evaluate_mesh(name, mesh_path, frames_by_name, dataset.camera_model, scale, rot, trans, gt_mesh, sample_names)
+        evaluate_mesh(
+            name,
+            mesh_path,
+            frames_by_name,
+            dataset.camera_model,
+            scale,
+            rot,
+            trans,
+            depth_targets,
+            surface_targets,
+            sample_names,
+        )
 
 if __name__ == "__main__":
     logging.basicConfig(format="[%(filename)s:%(lineno)d] %(message)s", level=logging.WARNING)
