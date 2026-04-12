@@ -2,7 +2,8 @@
 Reconstruction evaluator.
 
 Reports metrics for the base mesh and final reconstruction:
-- AbsRel (%) over sampled frames
+- AbsRel (%) over overlapping valid pixels in sampled frames
+- Depth overlap coverage (%) against valid GT pixels
 - Accuracy (m)
 - Completeness (m)
 """
@@ -51,6 +52,13 @@ class SyntheticDataset:
     def mesh_path(self) -> Path:
         return self.gt_dir / "scene_mesh.ply"
 
+@dataclass
+class DepthMetrics:
+    absrel_pct: float
+    overlap_pct: float
+    overlap_pixels: int
+    gt_valid_pixels: int
+
 def load_synthetic_dataset(dataset_root: Path) -> SyntheticDataset:
     root = Path(dataset_root)
     gt_dir = root / "gt"
@@ -85,15 +93,15 @@ def estimate_sim3(est_points: np.ndarray, gt_points: np.ndarray):
     t = mu_gt - scale * (R @ mu_est)
     return float(scale), R, t
 
-def load_gt_depth(depth_path: Path, camera: CameraModel) -> np.ndarray:
-    """Load GT depth from either PNG millimeters or NPY meters."""
+def load_gt_depth(depth_path: Path, camera: CameraModel, png_depth_scale: float = 5000.0) -> np.ndarray:
+    """Load GT z-depth from NPY meters or TUM-style PNG depth / scale."""
     if depth_path.suffix.lower() == ".npy":
         gt_depth = np.load(depth_path).astype(np.float64)
     else:
         gt_raw = cv2.imread(str(depth_path), cv2.IMREAD_UNCHANGED)
         if gt_raw is None:
             raise FileNotFoundError(f"Could not read GT depth: {depth_path}")
-        gt_depth = gt_raw.astype(np.float64) / 5000.0
+        gt_depth = gt_raw.astype(np.float64) / png_depth_scale
     if gt_depth.shape != (camera.height, camera.width):
         gt_depth = cv2.resize(gt_depth, (camera.width, camera.height), interpolation=cv2.INTER_NEAREST)
     return gt_depth
@@ -128,7 +136,6 @@ def load_context(workspace: Path, dataset):
     image_dir = workspace / "dense" / "images"
     recon = pycolmap.Reconstruction(str(recon_path))
     sfm = parse_reconstruction(recon, image_dir, max_reproj_error=4.0, min_track_length=3)
-    keyframes_by_name = {kf.image_name: kf for kf in sfm.keyframes}
 
     frames_by_name = {f.image_name: f for f in dataset.frames}
     est_centers, gt_centers = [], []
@@ -140,87 +147,129 @@ def load_context(workspace: Path, dataset):
         t = rigid.translation
         est_centers.append(-R.T @ t)
         gt_centers.append(frames_by_name[image.name].camera_center())
+    if len(est_centers) < 3:
+        raise RuntimeError(
+            f"Need at least 3 matched camera poses for Sim(3) alignment; got {len(est_centers)}."
+        )
     scale, rot, trans = estimate_sim3(np.asarray(est_centers), np.asarray(gt_centers))
-    return sfm, keyframes_by_name, scale, rot, trans
+    return sfm, scale, rot, trans
 
-def load_mesh_and_scene(mesh_path: Path):
-    mesh = o3d.io.read_triangle_mesh(str(mesh_path))
-    if mesh.is_empty() or len(mesh.triangles) == 0:
-        raise RuntimeError(f"Empty mesh: {mesh_path}")
+def mesh_to_scene(mesh: o3d.geometry.TriangleMesh):
     scene = o3d.t.geometry.RaycastingScene()
     mesh_t = o3d.t.geometry.TriangleMesh()
     mesh_t.vertex.positions = o3d.core.Tensor(np.asarray(mesh.vertices, dtype=np.float32))
     mesh_t.triangle.indices = o3d.core.Tensor(np.asarray(mesh.triangles, dtype=np.int32))
     scene.add_triangles(mesh_t)
-    return mesh, scene
+    return scene
+
+def load_mesh(mesh_path: Path):
+    mesh = o3d.io.read_triangle_mesh(str(mesh_path))
+    if mesh.is_empty() or len(mesh.triangles) == 0:
+        raise RuntimeError(f"Empty mesh: {mesh_path}")
+    return mesh
+
+def align_mesh_sim3(mesh: o3d.geometry.TriangleMesh, scale: float, rot: np.ndarray, trans: np.ndarray):
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    transformed = scale * (rot @ vertices.T).T + trans
+    aligned = o3d.geometry.TriangleMesh(mesh)
+    aligned.vertices = o3d.utility.Vector3dVector(transformed)
+    return aligned
 
 def select_sample_names(sfm, frames_by_name, n_frames):
+    if n_frames <= 0:
+        raise ValueError("--frames must be positive")
     matched = [kf.image_name for kf in sorted(sfm.keyframes, key=lambda k: k.image_name)
                if kf.image_name in frames_by_name]
+    if not matched:
+        raise RuntimeError("No registered SfM keyframes match the synthetic GT manifest.")
     n_pick = min(n_frames, len(matched))
     idx = np.linspace(0, len(matched) - 1, n_pick, dtype=int)
     return [matched[i] for i in idx]
 
-def compute_absrel(mesh_scene, keyframes_by_name, frames_by_name, camera_model, scale, sample_names):
+def compute_absrel(mesh_scene, frames_by_name, camera_model, sample_names):
     all_rel = []
+    overlap_pixels = 0
+    gt_valid_pixels = 0
     for name in sample_names:
-        kf = keyframes_by_name.get(name)
         gt_frame = frames_by_name.get(name)
-        if kf is None or gt_frame is None:
+        if gt_frame is None:
             continue
-        rendered_z = render_z_depth(mesh_scene, kf.pose, camera_model) * scale
+        rendered_z = render_z_depth(mesh_scene, gt_frame.pose(), camera_model)
         gt_depth = load_gt_depth(gt_frame.depth_z_path, camera_model)
-        valid = (rendered_z > 0) & (gt_depth > 0)
+        gt_valid = gt_depth > 0
+        valid = (rendered_z > 0) & gt_valid
+        gt_valid_pixels += int(gt_valid.sum())
+        overlap_pixels += int(valid.sum())
         if not valid.any():
             continue
         rel = np.abs(rendered_z[valid] - gt_depth[valid]) / np.maximum(gt_depth[valid], 1e-12)
         all_rel.append(rel)
     if not all_rel:
-        return float("nan")
-    return float(np.mean(np.concatenate(all_rel))) * 100.0
+        absrel = float("nan")
+    else:
+        absrel = float(np.mean(np.concatenate(all_rel))) * 100.0
+    overlap = overlap_pixels / gt_valid_pixels * 100.0 if gt_valid_pixels else float("nan")
+    return DepthMetrics(
+        absrel_pct=absrel,
+        overlap_pct=float(overlap),
+        overlap_pixels=overlap_pixels,
+        gt_valid_pixels=gt_valid_pixels,
+    )
 
-def compute_surface(mesh, gt_mesh, scale, rot, trans, sample_points=50000):
-    vertices = np.asarray(mesh.vertices, dtype=np.float64)
-    transformed = scale * (rot @ vertices.T).T + trans
-    aligned = o3d.geometry.TriangleMesh(mesh)
-    aligned.vertices = o3d.utility.Vector3dVector(transformed)
-
-    pred_pcd = aligned.sample_points_uniformly(number_of_points=sample_points)
+def compute_surface(aligned_mesh, gt_mesh, sample_points=50000):
+    pred_pcd = aligned_mesh.sample_points_uniformly(number_of_points=sample_points)
     gt_pcd = gt_mesh.sample_points_uniformly(number_of_points=sample_points)
     pred_to_gt = np.asarray(pred_pcd.compute_point_cloud_distance(gt_pcd))
     gt_to_pred = np.asarray(gt_pcd.compute_point_cloud_distance(pred_pcd))
     return float(np.mean(pred_to_gt)), float(np.mean(gt_to_pred))
 
-def evaluate_mesh(name, mesh_path, sfm, keyframes_by_name, frames_by_name,
+def evaluate_mesh(name, mesh_path, frames_by_name, camera_model,
                   scale, rot, trans, gt_mesh, sample_names):
-    mesh, mesh_scene = load_mesh_and_scene(mesh_path)
-    absrel = compute_absrel(mesh_scene, keyframes_by_name, frames_by_name,
-                            sfm.camera_model, scale, sample_names)
-    accuracy, completeness = compute_surface(mesh, gt_mesh, scale, rot, trans)
+    mesh = load_mesh(mesh_path)
+    aligned_mesh = align_mesh_sim3(mesh, scale, rot, trans)
+    mesh_scene = mesh_to_scene(aligned_mesh)
+    depth = compute_absrel(mesh_scene, frames_by_name, camera_model, sample_names)
+    accuracy, completeness = compute_surface(aligned_mesh, gt_mesh)
     print()
     print(f"{name} ({mesh_path.name})")
-    print(f"AbsRel: {absrel:.2f} %")
+    print(f"AbsRel (overlap): {depth.absrel_pct:.2f} %")
+    print(f"Depth overlap: {depth.overlap_pct:.2f} % ({depth.overlap_pixels}/{depth.gt_valid_pixels} GT-valid pixels)")
     print(f"Accuracy: {accuracy:.4f} m")
     print(f"Completeness: {completeness:.4f} m")
+
+def resolve_gt_mesh_path(dataset: SyntheticDataset, surface_gt: str) -> Path:
+    if surface_gt == "foreground":
+        path = dataset.gt_dir / "foreground_mesh.ply"
+        if not path.exists():
+            raise FileNotFoundError(f"Foreground GT mesh not found: {path}")
+        return path
+    return dataset.mesh_path
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("workspace", help="Workspace directory")
     parser.add_argument("--dataset", required=True, help="Synthetic dataset root")
     parser.add_argument("--frames", type=int, default=10, help="Number of frames for depth eval")
+    parser.add_argument(
+        "--surface-gt",
+        choices=("scene", "foreground"),
+        default="scene",
+        help="GT mesh used for surface metrics. Use 'scene' to match full-scene GT depth.",
+    )
     args = parser.parse_args()
 
     workspace = Path(args.workspace)
     dataset = load_synthetic_dataset(Path(args.dataset))
     frames_by_name = {f.image_name: f for f in dataset.frames}
 
-    sfm, keyframes_by_name, scale, rot, trans = load_context(workspace, dataset)
+    sfm, scale, rot, trans = load_context(workspace, dataset)
     sample_names = select_sample_names(sfm, frames_by_name, args.frames)
 
-    gt_mesh_path = dataset.gt_dir / "foreground_mesh.ply"
-    if not gt_mesh_path.exists():
-        gt_mesh_path = dataset.mesh_path
+    gt_mesh_path = resolve_gt_mesh_path(dataset, args.surface_gt)
     gt_mesh = o3d.io.read_triangle_mesh(str(gt_mesh_path))
+    if gt_mesh.is_empty() or len(gt_mesh.triangles) == 0:
+        raise RuntimeError(f"Empty GT mesh: {gt_mesh_path}")
+    print(f"Surface GT: {gt_mesh_path}")
 
     methods = []
     base_path = workspace / "initial_textured_poisson.ply"
@@ -233,7 +282,7 @@ def main():
         raise FileNotFoundError(f"No meshes found in {workspace}")
 
     for name, mesh_path in methods:
-        evaluate_mesh(name, mesh_path, sfm, keyframes_by_name, frames_by_name, scale, rot, trans, gt_mesh, sample_names)
+        evaluate_mesh(name, mesh_path, frames_by_name, dataset.camera_model, scale, rot, trans, gt_mesh, sample_names)
 
 if __name__ == "__main__":
     logging.basicConfig(format="[%(filename)s:%(lineno)d] %(message)s", level=logging.WARNING)
