@@ -18,6 +18,7 @@
 \usepackage{parskip}
 \usepackage{algorithm}
 \usepackage{algpseudocode}
+\usepackage{tikz}
 
 % ── Page style ────────────────────────────────────────────────────────────────
 \pagestyle{fancy}
@@ -65,7 +66,13 @@ Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor i
 % ── 1. Introduction ───────────────────────────────────────────────────────────
 \section{Introduction}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+Reconstructing dense 3D geometry from image sequences is a fundamental problem in computer vision, with applications ranging from augmented reality to robotics and scene understanding. While Structure-from-Motion (SfM) techniques are highly effective at recovering camera motion and sparse scene structure, they typically produce only coarse point clouds that lack the geometric detail required for high-quality surface reconstruction. Bridging the gap between sparse reconstruction and dense geometry remains a challenging task, particularly in the monocular setting where depth is inherently ambiguous.
+
+A notable approach to this problem is presented by Newcombe and Davison~\cite{newcombe2010}, who introduce a method for live dense reconstruction from a single moving camera. Their system combines real-time camera tracking with view-predictive optical flow and constrained scene flow updates to iteratively refine a coarse surface estimate into a detailed model. The key insight is to leverage predicted views of the current 3D model to compute dense correspondences, allowing geometric errors to be directly observed and corrected in image space.
+
+In this work, we implement and analyze a variant of this pipeline, focusing on the transition from sparse SfM output to dense surface refinement. From the inital point cloud, we construct a base mesh and iteratively refine it using view-predictive optical flow and constrained scene flow updates, closely following the methodology of~\cite{newcombe2010}.
+
+Our implementation prioritizes clarity and modularity over real-time performance, allowing us to study the behavior of each stage in isolation and gain a  deeper understanding of the interplay between geometry, photometric consistency, and variational optimization in monocular 3D reconstruction.
 
 % ── 2. Related Work ───────────────────────────────────────────────────────────
 \section{Related Work}
@@ -80,6 +87,31 @@ The methods for dense reconstruction from a single camera involved many complex 
 \section{Methods}
 
 Our project implementation is split into seven pipeline stages. First, we use SfM to obtain a sparse point cloud and camera matrices. Second, we generate a base mesh via Poisson reconstruction. Third, we perform keyframe selection to establish bundles for refinement. Fourth, we predict views from the current mesh to analyze discrepancies using optical flow. Fifth, we update mesh vertices based on these flow results to refine the reconstruction. Sixth, we apply a denoising algorithm to ensure spatial smoothness. Finally, we integrate the refined output into a global representation of the entire scene.
+
+\begin{figure*}[t] % [t] places it at the top of the page
+    \centering
+    \begin{tikzpicture}
+        % 1. Include the actual image
+        \node[anchor=south west, inner sep=0] (image) at (0,0) {
+            \includegraphics[width=\textwidth]{pipeline_stages.png}
+        };
+        
+        % 2. Create an overlay scope to place labels
+        % We use a normalized 0-1 scale for easy positioning
+        \begin{scope}[x={(image.south east)}, y={(image.north west)}]
+            
+            % Adjust the X coordinates (0.05, 0.25, etc.) to align with your stages
+            \node [anchor=west, font=\bfseries] at (0.08, -0.1) {(a)};
+            \node [anchor=west, font=\bfseries] at (0.25, -0.1) {(b)};
+            \node [anchor=west, font=\bfseries] at (0.42, -0.1) {(c)};
+            \node [anchor=west, font=\bfseries] at (0.61, -0.1) {(d)};
+            \node [anchor=west, font=\bfseries] at (0.84, -0.1) {(e)};
+            
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Dense Reconstruction Pipeline stages taken from \cite{newcombe2010}: (a) Structure from motion creates a sparse point cloud. (b) We fit a surface to the point cloud using poisson surface reconstruction (c) We select a bundle of cameras near a reference frame to perform iterative refinement (d) We use the depth updates computed using the constrained scene flow to deform the base mesh (e) We combine several refined local models to obtain one final integrated model.}
+    \label{fig:pipeline_stages}
+\end{figure*}
 
 \subsection{Overview}
 
@@ -360,6 +392,23 @@ and the new depth map is recovered as the Euclidean distance from the reference 
 
 Because the linearization of the projection function is only valid for small displacements, the update derived above is an approximation that improves as $\mathbf{x}_j$ approaches the true surface. Additionally, the formulation above can also be derived using Gauss-Newton, meaning that this process is a non-linear optimization problem. We therefore iterate the full process: after each depth update, the new depth map is denoised and retriangulated into a mesh, and optical flow is recomputed between a fresh view prediction from the updated mesh and each comparison image. This produces new, smaller flow residuals that drive a further correction. Following \cite{newcombe2010}, this outer loop runs for up to three iterations, or until the mean reprojection error falls below a certain threshold. In order to ensure that the depth map remains smooth while not falsely inducing smoothness along sharp edges, we apply the TV-L$^1$ described in the following section to denoise after each scene flow update.
 
+\subsection{Depth Map Denoising}
+
+As mentioned in \cite{newcombe2010}, when our current model is inaccurate, our image prediction algorithm can induce false discontinuities, in order to help alleviate this issue, we can apply smoothing. By smoothing the depth map in the reference frame, and then retriangulating, we can obtain a new mesh with fewer of these discontinuities. In said paper, there are 2 denoising functions which are mentioned that can be used here: A Gaussian Kernel with a support of 15 pixels or a TV-L$^1$ denoising algorithm. In practice, we decided to use the TV-L$^1$ algorithm, wherein we find a $\mathbf{D'}$ that minimizes the following function:
+
+\begin{equation}
+\mathbf{E_d} = \int_\Omega\gamma|\mathbf{D(x)}-\mathbf{D'(x)}|d\mathbf{x}+\int_\Omega g(\mathbf{x})|\nabla\mathbf{D'(x)}|d\mathbf{x}
+\end{equation}
+
+Our main reasoning for selecting the TV-L$^1$ algorithm over the, perhaps simpler, gaussian smoothing, is it's ability to preserve edges. The weight function $g$, is applied to the magnitude of the spatial gradient of the reference image $\nabla I_{ref}$ and maps it between 0 and 1 with the following formulation: $g(|\nabla I_{ref}|)=\exp(-\alpha|\nabla I_{ref}|^\beta)$. As can be seen, the weight will be large when the spatial gradient is small and vice-versa. Since the spatial gradient serves as a form of edge detection, as the value will only be large when there are sudden changes in the image intensity, this weight function ensures that sudden changes in depth will not be penalized if they occur across an edge. While \cite{newcombe2010}, specifies their parameters as $\alpha=10$ and $\beta = 1$, we found that these parameters were inaccurate, often inducing excessive changes in depth wherever there is even the slightest hint of an edge. This resulted in objects which were highly textured having many smaller discontinuities unlike the smoothness present in reality, as seen in figure ~\ref{denoise}. ****ADD SECTION DISCUSSING BEST VALUES FOR ALPHA AND BETA
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{denoise_example.png}
+    \caption{Mesh after performing a denoising step, shows sudden depth changes on areas which are flat in reality}
+    \label{denoise}
+\end{figure}
+
 \subsection{Global Integration}
 
 The scene flow stage produces a refined depth map for a bunch of bundles, but our final goal is a single mesh covering the entire scene. In order to achieve this, we need to convert each depth map into a triangle mesh and then merge them into a running global model. We need to do this without duplicating geometry where (consecutive) bundles overlap.
@@ -465,6 +514,11 @@ A.~Wedel, T.~Pock, C.~Zach, H.~Bischof, and D.~Cremers.
 N.~Sundaram, T.~Brox, and K.~Keutzer.
 \newblock Dense point trajectories by {GPU}-accelerated large displacement optical flow.
 \newblock In \textit{Proceedings of ECCV}, pages 438--451, 2010.
+
+\bibitem{chambolle2004tv}
+A.~Chambolle.
+\newblock An algorithm for total variation minimization and applications.
+\newblock \textit{Journal of Mathematical Imaging and Vision}, 20:89--97, 2004.
 
 \end{thebibliography}
 \endgroup
