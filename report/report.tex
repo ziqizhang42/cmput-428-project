@@ -47,7 +47,7 @@
     Henry Paproski \quad Johnny Zhang \\[0.3em]
     \small
     Faculty of Science, University of Alberta \\
-    \texttt{\{hpaprosk, author2\}@ualberta.ca}
+    \texttt{\{hpaprosk, ziqi24\}@ualberta.ca}
 }
 \date{}
 
@@ -85,9 +85,50 @@ Our project implementation is split into seven pipeline stages. First, we use Sf
 
 Lorem ipsum dolor sit amet, consectetur adipiscing elit.
 
-\subsection{Sub-method A}
+\subsection{Structure from Motion}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+The goal of the first stage of the pipeline is to recover camera intrinsics, per-frame extrinsics, and ultimately sparse 3D point cloud from the input video.
+The original system in \cite{newcombe2010} uses PTAM \cite{PTAM} to obtain these quantities in real-time. Since we had trouble finding a existing workable implimentaiton of PTAM, our implementation uses COLMAP \cite{COLMAP} via the \texttt{pycolmap} bindings. This provides a well-tested incremental SfM backend. Although COLMAP is a batch method and therefore we have to sacrifice the live aspect of \cite{newcombe2010}, its outputs (calibration matrix, world-to-camera poses, and a reprojection-filtered sparse point cloud) are exactly what we need for the remainder of the pipeline and so was selected.
+
+In COLMAP's pinhole model, a 3D world point $\mathbf{X}_j \in \mathbb{R}^3$ projects into an image $i$ via
+\begin{equation}
+    \tilde{\mathbf{u}}^i_j = \mathbf{K} [\mathbf{R}_i | \mathbf{t}_i] \tilde{\mathbf{X}}_j, \qquad \mathbf{u}^i_j = \tilde{\mathbf{u}}^i_j / \tilde{u}^i_{j,3},
+\end{equation}
+where $\tilde{\cdot}$ denotes homogeneous coordinates. The incremental mapper \cite{COLMAP} refines the intrinsics, per-frame extrinsics, and 3D structure by minimizing the reprojection error over all observations $(i, j) \in \mathcal{O}$,
+\begin{equation}
+    \min_{\mathbf{K}, \{\mathbf{R}_i,\mathbf{t}_i\}, \{\mathbf{X}_j\}} \sum_{(i,j)\in\mathcal{O}} \rho( \| \mathbf{u}^i_j - \hat{\mathbf{u}}^i_j \|^2 ),
+\end{equation}
+where $\hat{\mathbf{u}}^i_j$ is the observed feature location and $\rho(\cdot)$ is a loss that down-weights outliers from incorrect matches \cite{COLMAP}. The output of this is the $(\mathbf{K}, \mathbf{R}_i, \mathbf{t}_i, \mathbf{X}_j)$ that the remainder of our pipeline needs.
+
+Given a directory of frames, we run feature extraction under this pinhole camera model and perform sequential matching. When multiple reconstructions are produced we retain the one containing the largest number of registered images.
+Following this we call COLMAP's image undistortion routine so that all subsequent stages may assume a pure pinhole projection, which is an assumption implicit in both the view-prediction of Section 3.3 and the projection Jacobian of Section 3.4 of \cite{newcombe2010}.
+The undistorted reconstruction is then parsed into a \texttt{CameraModel} holding $K$ and image dimensions, a list of \texttt{Keyframe}s storing world-to-camera pose $(R, t)$ and the $3\times 4$ projection matrix $P = K[R | t]$, and a list of \texttt{SparsePoint}s.
+
+To remove invalid triangulations that would otherwise corrupt the base mesh, we filter the COLMAP point cloud by discarding all points whose track length is too low or whose mean reprojection error is too high. Note that the point cloud produced by COLMAP is unoriented but the Poisson reconstruction used in the next stage requires consistently oriented surface normales. This means that we have to estimate a normal at each surviving point by averaging the (negated) viewing directions of every camera that observes it. This should guarantee that the resulting normal points back toward the cameras that saw the surface and thus faces outward from the object.
+
+\subsection{Base Mesh Construction}
+
+With a sparse oriented point cloud in hand, we next fit a smooth initial surface that will be used in the scene flow refinement.
+Newcombe and Davison \cite{newcombe2010} construct their base surface by fitting a multi-scale compactly-supported radial basis function (MSCSRBF) implicit \cite{Ohtake03b} to the oriented SfM points and polygonising its zero level set. MSCSRBF is effective because it combines the global consistency of a single implicit function with the locality of compactly-supported basis functions, which makes it well-suited to the sparse, non-uniformly distributed point clouds produced by PTAM.
+It is also cheap enough to re-fit each time a new keyframe is added which support their live situation.
+In our implementation we instead use Poisson surface reconstruction \cite{Poisson}, which similarly solves globally for an implicit indicator function $\chi : \mathbb{R}^3 \to \mathbb{R}$ whose gradient matches the oriented point normals.
+Treating the input samples $\{(\mathbf{X}_j, \mathbf{n}_j)\}$ as discrete samples of a vector field $\vec{\mathbf{V}}$ whose value at each point is the surface normal, Kazhdan et al. observe that the indicator gradient should satisfy $\nabla\chi \approx \vec{\mathbf{V}}$. Taking the divergence of both sides and solving in the least-squares sense yields the Poisson equation
+\begin{equation}
+    \Delta\chi = \nabla\cdot\vec{\mathbf{V}},
+\end{equation}
+which is discretized over an adaptive octree and solved with a multigrid relaxation. The reconstructed surface is then extracted as the iso-level set $\{\mathbf{x} : \chi(\mathbf{x}) = c\}$. The iso-value, $c$, is chosen so that the level set passes through exactly the average of the input samples. This whole process yields a triangle mesh.
+
+The two methods occupy the same role in the pipeline but Poisson was the more practical choice as it is available as a one line function call in Open3D, whereas we were unable to find a easily workable MSCSRBF implementation compatible with our Python pipeline. Since we do not target live operation, the per-keyframe refit efficiency that motivated MSCSRBF in \cite{newcombe2010} is not a major concern for us.
+
+The raw Poisson output inevitably contains hallucinated geometry in regions far from the input samples, since the method extrapolates the implicit function over its entire support. We therefore apply a sequence of cleanup steps before handing the mesh off to the view-prediction stage.
+First, Poisson's per-vertex density estimate is used to trim low-confidence vertices whose density falls below a quantile threshold, which removes thin sheets in unsampled regions.
+Second, the mesh is cropped to a padded bounding box of the point cloud. This eliminates any remaining extrapolated geometry outside the observed scene.
+Next, we cluster connected components and only keep the largest one, discarding any small islands that were produced.
+Finally, we apply some small number of Taubin smoothing iterations to smooth out the jagged ``octree'' look of the Poisson output without shrinking the mesh, and fix the triangle winding so that all faces are oriented consistently.
+
+In order to interface with the next (view-prediction) stage, the cleaned mesh is loaded into an Open3D raycasting scene once and reused across all keyframes. So given a camera pose and intrinsics, we generate a ray bundle and cast it against the mesh, recording each pixel the Euclidean distance from the camera center to the intersection.
+Pixels whose rays miss the surface (for example, background regions or holes left by the cleanup above) are marked with zero depth and propagate to the view prediction as invalid so they are later excluded from the scene flow update. The resulting depth maps form the direct input to the view-predictive optical flow stage described next.
+An example of the base mesh produced by this is shown in Figure~\ref{fig:sceneflow_comparison}(a).
 
 \subsection{View-Predictive Optical Flow}
 \subsubsection{View-Prediction}
@@ -184,7 +225,7 @@ A known limitation of intensity-based optical flow is its sensitivity to illumin
 
 Optical flow estimation is inherently unreliable in occluded regions, where a pixel visible in one frame has no correspondence in the other. To discard such unreliable flow vectors before they influence the scene flow update, we apply a forward-backward consistency check. For each pixel, we compute the forward flow $\mathbf{u}_{fwd}$ from the predicted image to the comparison image, and the backward flow $\mathbf{u}_{bwd}$ in the reverse direction. When there is no occlusion, and the optic flow is accurate the backward flow should point in the opposite direction of the forward flow: $\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{u}_{bwd}(\mathbf{x} + \mathbf{u}_{fwd}(\mathbf{x}))=0$. Let $\mathbf{w}(\mathbf{x})=\mathbf{u}_{bwd}(\mathbf{x} + \mathbf{u}_{fwd}(\mathbf{x}))$, then a pixel's flow is marked valid only if this value falls below an adaptive threshold proportional to the local flow magnitude as follows:
 \begin{equation}
-|\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{w}(\mathbf{x})|^2 \lt 0.01(|\mathbf{u}_{fwd}|^2+|\mathbf{w}(\mathbf{x})|^2)+0.5
+|\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{w}(\mathbf{x})|^2 < 0.01(|\mathbf{u}_{fwd}|^2+|\mathbf{w}(\mathbf{x})|^2)+0.5
 \end{equation}
 
 This approach, motivated by the occlusion reasoning in \cite{sundaram2010}, ensures that flow vectors in occluded or poorly constrained regions, such as those which are close to black regions generated by holes in the base mesh, do not contribute to \(\lambda_j\), which is done by adding these outlier indexes to the mask generated in section 3.1.1.
@@ -335,6 +376,11 @@ J.~L. Schönberger and J.~M. Frahm.
 C.~Zach, T.~Pock, and H.~Bischof.
 \newblock A duality based approach for realtime TV-L1 optical flow.
 \newblock \textit{Proceedings of the Joint Pattern Recognition Symposium}, 2007.
+
+\bibitem{Ohtake03b}
+Y.~Ohtake, A.~Belyaev, and H.-P. Seidel.
+\newblock A multi-scale approach to 3D scattered data interpolation with compactly supported basis functions.
+\newblock \textit{Proceedings of Shape Modeling International}, 2003.
 
 \bibitem{Poisson}
 M.~Kazhdan, M.~Bolitho, and H.~Hoppe.
