@@ -4,8 +4,8 @@ Reconstruction evaluator.
 Reports metrics for the base mesh and final reconstruction:
 - AbsRel (%) over overlapping valid pixels in sampled frames
 - Depth overlap coverage (%) against valid GT pixels
-- Accuracy (m)
-- Completeness (m)
+- Visible-surface accuracy (m)
+- Visible-surface completeness (m)
 """
 
 from __future__ import annotations
@@ -230,11 +230,62 @@ def compute_surface(aligned_mesh, gt_mesh, sample_points=50000):
     gt_to_pred = np.asarray(gt_pcd.compute_point_cloud_distance(pred_pcd))
     return float(np.mean(pred_to_gt)), float(np.mean(gt_to_pred))
 
+def z_depth_to_world_points(z_depth: np.ndarray, pose: Pose, camera: CameraModel) -> np.ndarray:
+    valid = z_depth > 0
+    if not valid.any():
+        return np.empty((0, 3), dtype=np.float64)
+
+    ys, xs = np.nonzero(valid)
+    pixels = np.stack([xs, ys, np.ones_like(xs)], axis=0).astype(np.float64)
+    rays_cam = (np.linalg.inv(camera.K) @ pixels).T
+    points_cam = rays_cam * z_depth[valid][:, None]
+    return pose.camera_to_world(points_cam)
+
+def downsample_points(points: np.ndarray, max_points: int) -> np.ndarray:
+    if len(points) <= max_points:
+        return points
+    idx = np.linspace(0, len(points) - 1, max_points, dtype=int)
+    return points[idx]
+
+def collect_visible_points(mesh_scene, frames_by_name, camera_model, sample_names, max_points=50000):
+    if not sample_names:
+        return np.empty((0, 3), dtype=np.float64)
+
+    chunks = []
+    max_per_frame = max(1, int(np.ceil(max_points / len(sample_names))))
+    for name in sample_names:
+        gt_frame = frames_by_name.get(name)
+        if gt_frame is None:
+            continue
+        z_depth = render_z_depth(mesh_scene, gt_frame.pose(), camera_model)
+        points = z_depth_to_world_points(z_depth, gt_frame.pose(), camera_model)
+        if len(points) == 0:
+            continue
+        chunks.append(downsample_points(points, max_per_frame))
+
+    if not chunks:
+        return np.empty((0, 3), dtype=np.float64)
+    return downsample_points(np.concatenate(chunks, axis=0), max_points)
+
+def compute_visible_surface(pred_visible_points, gt_visible_points):
+    if len(pred_visible_points) == 0 or len(gt_visible_points) == 0:
+        return float("nan"), float("nan")
+
+    pred_pcd = o3d.geometry.PointCloud()
+    pred_pcd.points = o3d.utility.Vector3dVector(pred_visible_points)
+    gt_pcd = o3d.geometry.PointCloud()
+    gt_pcd.points = o3d.utility.Vector3dVector(gt_visible_points)
+
+    pred_to_gt = np.asarray(pred_pcd.compute_point_cloud_distance(gt_pcd))
+    gt_to_pred = np.asarray(gt_pcd.compute_point_cloud_distance(pred_pcd))
+    return float(np.mean(pred_to_gt)), float(np.mean(gt_to_pred))
+
 def evaluate_mesh(name, mesh_path, frames_by_name, camera_model,
                   scale, rot, trans, depth_targets, surface_targets, sample_names):
     mesh = load_mesh(mesh_path)
     aligned_mesh = align_mesh_sim3(mesh, scale, rot, trans)
     mesh_scene = mesh_to_scene(aligned_mesh)
+    pred_visible_points = collect_visible_points(mesh_scene, frames_by_name, camera_model, sample_names)
     print()
     print(f"{name} ({mesh_path.name})")
 
@@ -246,10 +297,11 @@ def evaluate_mesh(name, mesh_path, frames_by_name, camera_model,
             f"{depth.overlap_pct:.2f} % ({depth.overlap_pixels}/{depth.gt_valid_pixels} GT-valid pixels)"
         )
 
-    for target_name, gt_mesh in surface_targets:
-        accuracy, completeness = compute_surface(aligned_mesh, gt_mesh)
-        print(f"Surface [{target_name}] Accuracy: {accuracy:.4f} m")
-        print(f"Surface [{target_name}] Completeness: {completeness:.4f} m")
+    for target_name, _gt_mesh, gt_scene in surface_targets:
+        gt_visible_points = collect_visible_points(gt_scene, frames_by_name, camera_model, sample_names)
+        accuracy, completeness = compute_visible_surface(pred_visible_points, gt_visible_points)
+        print(f"Surface [{target_name}] visible Accuracy: {accuracy:.4f} m")
+        print(f"Surface [{target_name}] visible Completeness: {completeness:.4f} m")
 
 def selected_targets(selection: str) -> list[str]:
     if selection == "both":
@@ -274,7 +326,7 @@ def load_surface_targets(dataset: SyntheticDataset, surface_gt: str):
         mesh = o3d.io.read_triangle_mesh(str(path))
         if mesh.is_empty() or len(mesh.triangles) == 0:
             raise RuntimeError(f"Empty GT mesh: {path}")
-        targets.append((target_name, mesh))
+        targets.append((target_name, mesh, mesh_to_scene(mesh)))
     return targets
 
 def resolve_depth_gt_scene(dataset: SyntheticDataset, depth_gt: str):
@@ -320,7 +372,7 @@ def main():
     depth_targets = load_depth_targets(dataset, args.depth_gt)
     surface_targets = load_surface_targets(dataset, args.surface_gt)
     print(f"Depth GT: {', '.join(name for name, _ in depth_targets)}")
-    print(f"Surface GT: {', '.join(name for name, _ in surface_targets)}")
+    print(f"Surface GT: {', '.join(name for name, *_ in surface_targets)}")
 
     methods = []
     base_path = workspace / "initial_textured_poisson.ply"
