@@ -536,7 +536,9 @@ We then evaluate under this alignment. This is so that any comparisons reflects 
 
 We evaluate each mesh under the following metrics.
 
-First, depth agreement: for each GT pose, we will use Open3D to render a camera-frame $z$-depth map from the predicted mesh. We will then compare it to the GT depth at every pixel that is valid (in both maps). We then report:
+First, depth agreement: for each GT pose, we will use Open3D to render a camera-frame $z$-depth map (note that this is the camera-space $Z$ coordinate of the intersection betweent the ray and mesh) from the predicted mesh. We will then compare it to the GT depth at every pixel that is valid (in both maps).
+Note that our pipeline stores depth as Euclidean range internally: so the distance from the camera center along the viewing ray. However, the comparison here is $z$-vs-$z$ (because both the rendered prediction and the GT depth are produced with the same $Z$-component convention and this makes the two directly comparable).
+We then report the mean absolute relative error \cite{eigen2014} and also an overlap ratio:
 \begin{align}
     \text{AbsRel} &= \frac{1}{|\mathcal{V}|}\sum_{\mathbf{u}\in\mathcal{V}} \frac{|\hat{z}(\mathbf{u}) - z_{gt}(\mathbf{u})|}{z_{gt}(\mathbf{u})}, \\
     \text{Overlap} &= \frac{|\mathcal{V}|}{|\mathcal{V}_{gt}|},
@@ -545,7 +547,7 @@ where $\mathcal{V}$ are pixels at which both depths are positive and $\mathcal{V
 
 The second is visible surface agreement: we do not compare the full predicted mesh against the full GT mesh as that would penalise our reconstruction for missing the back sides of objects (that the camera never observes). Instead, we place a restriction on so that we only consider the surfaces visible from the sample poses.
 That is, we render a $z$-depth map from the mesh for each sample pose and back-project every valid pixel into world coordinates. We then collect a cloud of at most 50,000 visible points. Doing this for both the predicted mesh and the GT mesh gives two point clouds, $\mathcal{P}$ and $\mathcal{Q}$, representing the same part of the scene.
-We then report the following distances:
+We then report the following distances \cite{seitz2006}:
 \begin{align}
     \text{Accuracy} &= \frac{1}{|\mathcal{P}|}\sum_{\mathbf{p}\in\mathcal{P}} \min_{\mathbf{q}\in\mathcal{Q}} \|\mathbf{p}-\mathbf{q}\|, \\
     \text{Completeness} &= \frac{1}{|\mathcal{Q}|}\sum_{\mathbf{q}\in\mathcal{Q}} \min_{\mathbf{p}\in\mathcal{P}} \|\mathbf{p}-\mathbf{q}\|.
@@ -719,6 +721,16 @@ N.~Sundaram, T.~Brox, and K.~Keutzer.
 A.~Chambolle.
 \newblock An algorithm for total variation minimization and applications.
 \newblock \textit{Journal of Mathematical Imaging and Vision}, 20:89--97, 2004.
+
+\bibitem{eigen2014}
+D.~Eigen, C.~Puhrsch, and R.~Fergus.
+\newblock Depth map prediction from a single image using a multi-scale deep network.
+\newblock In \textit{Advances in Neural Information Processing Systems (NeurIPS)}, 2014.
+
+\bibitem{seitz2006}
+S.~M. Seitz, B.~Curless, J.~Diebel, D.~Scharstein, and R.~Szeliski.
+\newblock A comparison and evaluation of multi-view stereo reconstruction algorithms.
+\newblock In \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 2006.
 
 \end{thebibliography}
 \endgroup
