@@ -67,11 +67,11 @@ This project report details a multi-stage dense 3D reconstruction pipeline that 
 % ── 1. Introduction ───────────────────────────────────────────────────────────
 \section{Introduction}
 
-Reconstructing dense 3D geometry from image sequences is a fundamental problem in computer vision, with applications ranging from augmented reality to robotics and scene understanding. While Structure-from-Motion (SfM) techniques are highly effective at recovering camera motion and sparse scene structure, they typically produce only coarse point clouds that lack the geometric detail required for high-quality surface reconstruction. Bridging the gap between sparse reconstruction and dense geometry remains a challenging task, particularly in the monocular setting where depth is inherently ambiguous.
+Reconstructing dense 3D geometry from image sequences is a fundamental problem in computer vision, with applications ranging from augmented reality to robotics and scene understanding. While Structure-from-Motion (SfM) techniques are highly effective at recovering camera motion and sparse scene structure, they typically only produce sparse point clouds that lack the geometric detail required for high-quality surface reconstruction. Bridging the gap between sparse reconstruction and dense geometry remains a challenging task, particularly in the monocular setting where depth is inherently ambiguous.
 
 A notable approach to this problem is to combine real-time camera tracking with view-predictive optical flow and constrained scene flow updates to iteratively refine a coarse surface estimate into a detailed model. The principal idea is to leverage predicted views of the current 3D model to compute dense correspondences, allowing geometric errors to be directly observed and corrected in image space. 
 
-Our implementation prioritizes clarity and modularity over real-time performance, allowing us to study the behavior of each stage in isolation and gain a  deeper understanding of the interplay between geometry, photometric consistency, and variational optimization in monocular 3D reconstruction.
+Our implementation prioritizes clarity and modularity over real-time performance, allowing us to study the behavior of each stage in isolation and gain a deeper understanding of the interplay between geometry, photometric consistency, and variational optimization in monocular 3D reconstruction. The source code for the project can be found on GitHub \footnote{https://github.com/ziqizhang42/CMPUT-428-Project.git}
 
 % ── 2. Related Work ───────────────────────────────────────────────────────────
 \section{Related Work}
