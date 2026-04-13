@@ -611,7 +611,52 @@ So the final mesh trades coverage for accuracy as it predicts over a smaller reg
 The full-scene completeness is large ($150$-$157$mm) for both methods when compared to the foreground numbers.
 This indicates missing walls, ceiling, and floor. The completeness metric picks this up because every point on the GT wall has its nearest predicted neighbour far away on a foreground object.
 
-% ── 5. Conclusions ────────────────────────────────────────────────────────────
+% ── 5. FUTURE WORK AND IMPROVEMENTS─────────────────────────────────────────────
+
+\section{FUTURE WORK AND IMPROVEMENTS}
+
+There are several directions in which the current pipeline could be extended 
+or improved.
+
+\subsection{TSDF-Based Global Integration}
+
+Our current integration strategy fuses per-bundle depth maps by simply 
+removing overlapping vertices, which can produce seam artifacts and does not 
+leverage redundancy across depth maps to reduce noise. A more accurate 
+approach would be to adopt Truncated Signed Distance Function (TSDF) 
+volumetric fusion, which integrates all depth maps and their associated camera poses from SfM into a single consistent implicit surface. Because TSDF fusion  averages across overlapping views, the resulting mesh would be smoother and more geometrically consistent than the current vertex-removal approach.
+
+\subsection{Handling Occlusions via Undeformed Vertex Integration}
+
+The constrained scene flow update only moves vertices that are visible in at 
+least one comparison frame, leaving occluded regions with their original base 
+mesh geometry. Currently these unrefined vertices are discarded, which can introduce geometric discontinuities at occlusion boundaries. A useful extension would be to explicitly track which vertices were not updated during the iterative refinement and retain them from the base mesh in the final output, providing a complete surface estimate even in regions not covered by the optical flow computation.
+
+\subsection{Optical Flow Parameter Tuning}
+
+Our implementation uses a fixed set of parameters for the TV-$L^1$ optical 
+flow algorithm ($\lambda$, $\theta$, number of warps, pyramid levels) taken 
+from the defaults of the OpenCV \texttt{DualTVL1} implementation. These 
+parameters were not specifically calibrated for the view-predictive setting, 
+and as such can likely be adjusted for increased accuracy. A systematic evaluation on a dataset with ground truth depth, would allow the parameters to be tuned to minimize scene flow error directly, likely improving reconstruction accuracy without any algorithmic changes.
+
+\subsection{Improved Base Surface Reconstruction}
+
+A significant limitation of our current pipeline is the quality of the base 
+mesh produced by COLMAP and Poisson surface reconstruction. We found that 
+the Poisson mesh frequently contains geometric errors large enough that the 
+pipeline was unable to recover a sufficiently accurate final mesh. Using a different SfM or multi-view stereo system — or replacing the Poisson surface with a more accurate surface method could provide a substantially more accurate starting point and make the iterative refinement stage run much smoother.
+
+\subsection{GPU Acceleration}
+
+The original system described in \cite{newcombe2010} performs all variational 
+computations on dedicated GPU hardware, enabling real-time operation. Our 
+implementation runs entirely on the CPU, which makes the pipeline 
+significantly slower and prevents processing of full sequences in a 
+reasonable time. Porting the optical flow computation, scene flow update, and 
+depth denoising and most importantly SfM to GPU using a framework such as CUDA or PyTorch would bring the implementation closer to the original paper's design and make real time mesh construction possible.
+
+% ── 6. Conclusions ────────────────────────────────────────────────────────────
 \section{Conclusions}
 
 Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
