@@ -5,3 +5,11 @@ datasets/*/*
 !datasets/*/dense/
 
 .DS_Store
+
+# LaTeX
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz

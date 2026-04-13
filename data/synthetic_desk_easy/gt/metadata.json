@@ -10,9 +10,9 @@
     "moving_objects": false
   },
   "trajectory": {
-    "type": "arc",
-    "frame_count": 128,
-    "width": 1280,
-    "height": 720
+    "type": "rigid_l_path",
+    "frame_count": 64,
+    "width": 640,
+    "height": 480
   }
 }

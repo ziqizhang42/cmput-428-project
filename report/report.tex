@@ -1,0 +1,587 @@
+\documentclass[10pt,twocolumn]{article}
+
+% ── Packages ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1in, top=1in, bottom=1in]{geometry}
+\usepackage{times}           % Times New Roman font, standard for CVPR
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{abstract}        % Allows styling of abstract
+\usepackage{titlesec}        % Section heading control
+\usepackage{fancyhdr}
+\usepackage{setspace}
+\usepackage{parskip}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+
+% ── Page style ────────────────────────────────────────────────────────────────
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\fancyfoot[C]{\thepage}
+
+% ── Section heading style (bold, slightly smaller than default) ───────────────
+\titleformat{\section}{\normalfont\large\bfseries\centering}{\thesection.}{0.5em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries}{\thesubsection.}{0.5em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries\itshape}{\thesubsubsection.}{0.5em}{}
+
+% ── Abstract styling ─────────────────────────────────────────────────────────
+\renewcommand{\abstractnamefont}{\normalfont\large\bfseries\centering}
+\renewcommand{\abstracttextfont}{\normalfont\small\itshape}
+
+% ── Spacing ───────────────────────────────────────────────────────────────────
+\setlength{\columnsep}{0.3in}
+\setlength{\parindent}{1em}
+\setlength{\parskip}{2pt}
+
+% ── Title block ───────────────────────────────────────────────────────────────
+\title{%
+    \vspace{-1em}
+    \Large\textbf{Final Project Report} \\[0.5em]
+    \normalsize
+    Henry Paproski \quad Johnny Zhang \\[0.3em]
+    \small
+    Faculty of Science, University of Alberta \\
+    \texttt{\{hpaprosk, ziqi24\}@ualberta.ca}
+}
+\date{}
+
+% ══════════════════════════════════════════════════════════════════════════════
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% ── Abstract ──────────────────────────────────────────────────────────────────
+\begin{abstract}
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+\end{abstract}
+
+% ── 1. Introduction ───────────────────────────────────────────────────────────
+\section{Introduction}
+
+Reconstructing dense 3D geometry from image sequences is a fundamental problem in computer vision, with applications ranging from augmented reality to robotics and scene understanding. While Structure-from-Motion (SfM) techniques are highly effective at recovering camera motion and sparse scene structure, they typically produce only coarse point clouds that lack the geometric detail required for high-quality surface reconstruction. Bridging the gap between sparse reconstruction and dense geometry remains a challenging task, particularly in the monocular setting where depth is inherently ambiguous.
+
+A notable approach to this problem is presented by Newcombe and Davison~\cite{newcombe2010}, who introduce a method for live dense reconstruction from a single moving camera. Their system combines real-time camera tracking with view-predictive optical flow and constrained scene flow updates to iteratively refine a coarse surface estimate into a detailed model. The key insight is to leverage predicted views of the current 3D model to compute dense correspondences, allowing geometric errors to be directly observed and corrected in image space.
+
+In this work, we implement and analyze a variant of this pipeline, focusing on the transition from sparse SfM output to dense surface refinement. From the inital point cloud, we construct a base mesh and iteratively refine it using view-predictive optical flow and constrained scene flow updates, closely following the methodology of~\cite{newcombe2010}.
+
+Our implementation prioritizes clarity and modularity over real-time performance, allowing us to study the behavior of each stage in isolation and gain a  deeper understanding of the interplay between geometry, photometric consistency, and variational optimization in monocular 3D reconstruction.
+
+% ── 2. Related Work ───────────────────────────────────────────────────────────
+\section{Related Work}
+
+The inspiration for this project is the work presented in \cite{newcombe2010}, which introduces a method for generating dense 3D reconstructions by leveraging a sparse base produced using structure-from-motion (SfM). The appeal of this approach is the ability to take a coarse initial model and iteratively refine it into a high accuracy final model. Our implementation focuses on the core pipeline described in this system, specifically the transition from sparse mapping to dense surface estimation through scene-flow updates computed using view-predictive optical flow.
+
+A critical component of monocular reconstruction is the underlying tracking and mapping system. The original system in \cite{newcombe2010} utilizes Parallel Tracking and Mapping (PTAM) \cite{PTAM} to provide real-time camera poses and a sparse point cloud. However, due to the limited availability of PTAM implementations compatible with Python, we substituted this component with ColMap \cite{COLMAP}, another SfM library which was readily availanle. While ColMap is typically used for offline processing, it provides the sparse foundation necessary to test the subsequent dense reconstruction stages.
+
+The methods for dense reconstruction from a single camera involved many complex optimization problems. The methods described in \cite{newcombe2010} frequently utilize Variational methods for global energy minimization, such as the TV-L1 optical flow algorithm discussed in \cite{TV-L1} and the denoising technique mentioned in \cite{newcombe2010}. These methods ensure that the final product both aligns with what's seen in  the video while still retaining smoothness. In our implementation, we utilize Poisson reconstruction \cite{Poisson} to generate a base mesh from the initial sparse data, which is then used for further refinement. Although the reference paper \cite{newcombe2010} emphasizes live performance, our project prioritizes the algorithmic pipeline's ability to enhance model fidelity and photo-consistency by building upon existing SfM data.
+
+% ── 3. Methods ────────────────────────────────────────────────────────────────
+\section{Methods}
+
+Our project implementation is split into seven pipeline stages. First, we use SfM to obtain a sparse point cloud and camera matrices. Second, we generate a base mesh via Poisson reconstruction. Third, we perform keyframe selection to establish bundles for refinement. Fourth, we predict views from the current mesh to analyze discrepancies using optical flow. Fifth, we update mesh vertices based on these flow results to refine the reconstruction. Sixth, we apply a denoising algorithm to ensure spatial smoothness. Finally, we integrate the refined output into a global representation of the entire scene.
+
+\begin{figure*}[t] % [t] places it at the top of the page
+    \centering
+    \begin{tikzpicture}
+        % 1. Include the actual image
+        \node[anchor=south west, inner sep=0] (image) at (0,0) {
+            \includegraphics[width=\textwidth]{pipeline_stages.png}
+        };
+        
+        % 2. Create an overlay scope to place labels
+        % We use a normalized 0-1 scale for easy positioning
+        \begin{scope}[x={(image.south east)}, y={(image.north west)}]
+            
+            % Adjust the X coordinates (0.05, 0.25, etc.) to align with your stages
+            \node [anchor=west, font=\bfseries] at (0.08, -0.1) {(a)};
+            \node [anchor=west, font=\bfseries] at (0.25, -0.1) {(b)};
+            \node [anchor=west, font=\bfseries] at (0.42, -0.1) {(c)};
+            \node [anchor=west, font=\bfseries] at (0.61, -0.1) {(d)};
+            \node [anchor=west, font=\bfseries] at (0.84, -0.1) {(e)};
+            
+        \end{scope}
+    \end{tikzpicture}
+    \caption{Dense Reconstruction Pipeline stages taken from \cite{newcombe2010}: (a) Structure from motion creates a sparse point cloud. (b) We fit a surface to the point cloud using poisson surface reconstruction (c) We select a bundle of cameras near a reference frame to perform iterative refinement (d) We use the depth updates computed using the constrained scene flow to deform the base mesh (e) We combine several refined local models to obtain one final integrated model.}
+    \label{fig:pipeline_stages}
+\end{figure*}
+
+\subsection{Overview}
+
+In this section we walk through each of the stages listed above in the order that the pipeline executes them, detailing both our implementation choices and the places where we deviate from \cite{newcombe2010}. We illustrate each stage with intermediate outputs from a single running example throughout: a handheld video of a cluttered desk scene of \textit{Henry's desk}.
+
+\subsection{Structure from Motion}
+
+The goal of the first stage of the pipeline is to recover camera intrinsics, per-frame extrinsics, and ultimately sparse 3D point cloud from the input video.
+The original system in \cite{newcombe2010} uses PTAM \cite{PTAM} to obtain these quantities in real-time. Since we had trouble finding a existing workable implimentaiton of PTAM, our implementation uses COLMAP \cite{COLMAP} via the \texttt{pycolmap} bindings. This provides a well-tested incremental SfM backend. Although COLMAP is a batch method and therefore we have to sacrifice the live aspect of \cite{newcombe2010}, its outputs (calibration matrix, world-to-camera poses, and a reprojection-filtered sparse point cloud) are exactly what we need for the remainder of the pipeline and so was selected.
+
+In COLMAP's pinhole model, a 3D world point $\mathbf{X}_j \in \mathbb{R}^3$ projects into an image $i$ via
+\begin{equation}
+    \tilde{\mathbf{u}}^i_j = \mathbf{K} [\mathbf{R}_i | \mathbf{t}_i] \tilde{\mathbf{X}}_j, \qquad \mathbf{u}^i_j = \tilde{\mathbf{u}}^i_j / \tilde{u}^i_{j,3},
+\end{equation}
+where $\tilde{\cdot}$ denotes homogeneous coordinates. The incremental mapper \cite{COLMAP} refines the intrinsics, per-frame extrinsics, and 3D structure by minimizing the reprojection error over all observations $(i, j) \in \mathcal{O}$,
+\begin{equation}
+    \min_{\mathbf{K}, \{\mathbf{R}_i,\mathbf{t}_i\}, \{\mathbf{X}_j\}} \sum_{(i,j)\in\mathcal{O}} \rho( \| \mathbf{u}^i_j - \hat{\mathbf{u}}^i_j \|^2 ),
+\end{equation}
+where $\hat{\mathbf{u}}^i_j$ is the observed feature location and $\rho(\cdot)$ is a loss that down-weights outliers from incorrect matches \cite{COLMAP}. The output of this is the $(\mathbf{K}, \mathbf{R}_i, \mathbf{t}_i, \mathbf{X}_j)$ that the remainder of our pipeline needs.
+
+Given a directory of frames, we run feature extraction under this pinhole camera model and perform sequential matching. When multiple reconstructions are produced we retain the one containing the largest number of registered images.
+Following this we call COLMAP's image undistortion routine so that all subsequent stages may assume a pure pinhole projection, which is an assumption implicit in both the view-prediction of Section 3.3 and the projection Jacobian of Section 3.4 of \cite{newcombe2010}.
+The undistorted reconstruction is then parsed into a \texttt{CameraModel} holding $K$ and image dimensions, a list of \texttt{Keyframe}s storing world-to-camera pose $(R, t)$ and the $3\times 4$ projection matrix $P = K[R | t]$, and a list of \texttt{SparsePoint}s.
+
+To remove invalid triangulations that would otherwise corrupt the base mesh, we filter the COLMAP point cloud by discarding all points whose track length is too low or whose mean reprojection error is too high. Note that the point cloud produced by COLMAP is unoriented but the Poisson reconstruction used in the next stage requires consistently oriented surface normales. This means that we have to estimate a normal at each surviving point by averaging the (negated) viewing directions of every camera that observes it. This should guarantee that the resulting normal points back toward the cameras that saw the surface and thus faces outward from the object. An example of the resulting sparse point cloud is shown below (Figure~\ref{fig:sparse_point_cloud}).
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{henry_desk_sparse_point_cloud.png}
+    \caption{Sparse point cloud produced by COLMAP on \textit{Henry's desk} after filtering.}
+    \label{fig:sparse_point_cloud}
+\end{figure}
+
+\subsection{Base Mesh Construction}
+
+With a sparse oriented point cloud in hand, we next fit a smooth initial surface that will be used in the scene flow refinement.
+Newcombe and Davison \cite{newcombe2010} construct their base surface by fitting a multi-scale compactly-supported radial basis function (MSCSRBF) implicit \cite{Ohtake03b} to the oriented SfM points and polygonising its zero level set. MSCSRBF is effective because it combines the global consistency of a single implicit function with the locality of compactly-supported basis functions, which makes it well-suited to the sparse, non-uniformly distributed point clouds produced by PTAM.
+It is also cheap enough to re-fit each time a new keyframe is added which support their live situation.
+In our implementation we instead use Poisson surface reconstruction \cite{Poisson}, which similarly solves globally for an implicit indicator function $\chi : \mathbb{R}^3 \to \mathbb{R}$ whose gradient matches the oriented point normals.
+Treating the input samples $\{(\mathbf{X}_j, \mathbf{n}_j)\}$ as discrete samples of a vector field $\vec{\mathbf{V}}$ whose value at each point is the surface normal, Kazhdan et al. observe that the indicator gradient should satisfy $\nabla\chi \approx \vec{\mathbf{V}}$. Taking the divergence of both sides and solving in the least-squares sense yields the Poisson equation
+\begin{equation}
+    \Delta\chi = \nabla\cdot\vec{\mathbf{V}},
+\end{equation}
+which is discretized over an adaptive octree and solved with a multigrid relaxation. The reconstructed surface is then extracted as the iso-level set $\{\mathbf{x} : \chi(\mathbf{x}) = c\}$. The iso-value, $c$, is chosen so that the level set passes through exactly the average of the input samples. This whole process yields a triangle mesh.
+
+The two methods occupy the same role in the pipeline but Poisson was the more practical choice as it is available as a one line function call in Open3D, whereas we were unable to find a easily workable MSCSRBF implementation compatible with our Python pipeline. Since we do not target live operation, the per-keyframe refit efficiency that motivated MSCSRBF in \cite{newcombe2010} is not a major concern for us.
+
+The raw Poisson output inevitably contains hallucinated geometry in regions far from the input samples, since the method extrapolates the implicit function over its entire support. We therefore apply a sequence of cleanup steps before handing the mesh off to the view-prediction stage.
+First, Poisson's per-vertex density estimate is used to trim low-confidence vertices whose density falls below a quantile threshold, which removes thin sheets in unsampled regions.
+Second, the mesh is cropped to a padded bounding box of the point cloud. This eliminates any remaining extrapolated geometry outside the observed scene.
+Next, we cluster connected components and only keep the largest one, discarding any small islands that were produced.
+Finally, we apply some small number of Taubin smoothing iterations to smooth out the jagged ``octree'' look of the Poisson output without shrinking the mesh, and fix the triangle winding so that all faces are oriented consistently.
+
+In order to interface with the next (view-prediction) stage, the cleaned mesh is loaded into an Open3D raycasting scene once and reused across all keyframes. So given a camera pose and intrinsics, we generate a ray bundle and cast it against the mesh, recording each pixel the Euclidean distance from the camera center to the intersection.
+Pixels whose rays miss the surface (for example, background regions or holes left by the cleanup above) are marked with zero depth and propagate to the view prediction as invalid so they are later excluded from the scene flow update. The resulting depth maps form the direct input to the view-predictive optical flow stage described next.
+An example of the base mesh produced by this pipeline is shown in Figure~\ref{fig:base_mesh}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{henry_desk_base_mesh.png}
+    \caption{Base mesh produced by Poisson surface reconstruction on \textit{Henry's desk} after cleanup.}
+    \label{fig:base_mesh}
+\end{figure}
+
+\subsection{Bundle Selection}
+
+The subsequent refinement stages operates on a \textit{bundle} each consisting of one reference frame and $n$ comparison frames. The reference supplies the depth map that is to be refined, while the comparisons provide the additional views whose optical flow drives the scene flow update. The choice of these frames is important: too few comparisons or a poor distribution of baselines leads directly to the aperture problem in the flow computation, while redundant comparisons waste computation without improving the conditioning of the linear system.
+
+Newcombe and Davison \cite{newcombe2010} solve this problem online using a rolling buffer of the most recent 60 frames. A new reference frame is initialised whenever the co-visibility $V_r$ of the previous reference with the current camera drops below a threshold $\epsilon_r = 0.3$, where $V_r$ is computed by rendering the base surface from both poses and measuring the fraction of reference pixels that remain visible. For each new reference, they then wait until the co-visibility $V_c$ of a subsequent frame with the reference drops below $\epsilon_c = 0.7$, at which point the last 60 frames are searched for the $n$ comparisons whose translations are most evenly distributed around the reference view direction, which maximises the baseline of the bundle and helps mitigate the aperture problem in the subsequent dense flow computation.
+
+We follows the same structure in our implimentation: begin by walking through the keyframes in order and running the same co-visibility test as \cite{newcombe2010}. For each candidate we render the base mesh from both its pose and the pose of the current reference, and measure the fraction of reference-frame pixels whose rays hit the surface and are also hit from the candidate view. A candidate becomes a new reference whenever this overlap falls below $\epsilon_r = 0.3$, matching the paper's threshold. Candidates whose coverage of the base mesh is itself below $10\%$ are skipped outright, as they cannot meaningfully contribute to any refinement.
+
+For each selected reference, we then form a buffer of co-visible neighbours and choose $n$ comparisons from it. Rather than maximising raw translational disparity, we make the angular criterion explicit: given the reference viewing direction $\mathbf{d}$, we project each candidate's translation vector $\mathbf{t}_{c} - \mathbf{t}_{ref}$ onto the plane perpendicular to $\mathbf{d}$ and record its azimuth $\varphi \in [0, 2\pi)$.
+Candidates whose baseline lies outside a minimum and maximum range, or whose own view direction deviates from $\mathbf{d}$ by more than $20^\circ$, are discarded so that the comparison cameras look at roughly the same portion of the scene as the reference.
+We then select the $n$ comparisons greedily: the first is the one with the largest baseline, and each subsequent comparison is chosen to maximise the smallest circular distance in $\varphi$ to all already-selected comparisons.
+This recovers the ``distributed around the reference view'' property from \cite{newcombe2010} in a form that is cheap to evaluate.
+The resulting bundles are consumed by the view-prediction and scene-flow stages described next.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{henry_desk_bundle_reference.png}
+    \caption{Approximate reference frames for \textit{Henry's desk} in our pipeline.}
+    \label{fig:henry_desk_bundle_reference}
+\end{figure}
+
+\subsection{View-Predictive Optical Flow}
+\subsubsection{View-Prediction}
+The purpose of the view prediction stage is to generate a virtual image that represents how a scene should appear from the perspective of a specific comparison camera, given our current 3D reconstruction. Following the methodology in [1], this "synthetic" view serves as a intermediate step for computing view-predictive optical flow. By comparing the predicted image with the actual captured image from the comparison pose, the system can identify discrepancies caused by inaccuracies in the base mesh.
+
+Unlike the implementation described in [1], wherein the reference frame image is back-projected onto the base model, then said textured model is projected into the reference. We instead use the base mesh to obtain a depth map for the comparison frame and use it to restore the 3D coordinates where each ray in the image intersects the base mesh and project those points into the reference frame. Once we do that we have a map for which pixel in the reference corresponds to a given pixel in the comparison so we perform a sampling to obtain our final image prediction. This process is shown in more detail in algorithm 1.
+
+\begin{algorithm}
+\caption{View-Predictive Image Synthesis}
+\begin{algorithmic}[1]
+\State $K_{inv} \leftarrow K^{-1}$
+\For{each pixel $\mathbf{u} = (x, y)$ in comparison frame}
+    \State $\mathbf{r} \leftarrow K_{inv} \cdot \tilde{\mathbf{u}}$
+        \Comment{Back-project to camera ray}
+    \State $\hat{\mathbf{r}} \leftarrow \mathbf{r} / \|\mathbf{r}\|$
+    \State $X_{comp} \leftarrow \hat{\mathbf{r}} \cdot D(\mathbf{u})$
+        \Comment{Scale by Euclidean depth}
+    \State $X_{world} \leftarrow R_{comp}^{-1}(X_{comp} - t_{comp})$
+    \State $X_{ref} \leftarrow R_{ref} \cdot X_{world} + t_{ref}$
+    \State $\tilde{\mathbf{u}}_{ref} \leftarrow K \cdot X_{ref}$
+        \Comment{Project into reference}
+    \State $\mathbf{u}_{ref} \leftarrow \tilde{\mathbf{u}}_{ref} / X_{ref}[2]$
+        \Comment{Dehomogenise}
+    \If{$\mathbf{u}_{ref}$ inside image bounds \textbf{and} $X_{ref}[2] > 0$}
+        \State $I_{pred}(\mathbf{u}) \leftarrow I_{ref}(\mathbf{u}_{ref})$
+    \Else
+        \State $I_{pred}(\mathbf{u}) \leftarrow 0$
+            \Comment{Mark invalid}
+    \EndIf
+\EndFor
+\State \Return $I_{pred}$
+\end{algorithmic}
+\end{algorithm}
+
+Unfortunately, in cases where the pixels land outside of the image boundary or there is no base mesh we are unable to extract any information about said pixel and simply set it to zero as seen in figure ~\ref{fig:image_prediction}. To keep track of these pixels we actually construct a mask of valid pixels, which simply tells us which pixels didn't intersect the base mesh and which pixels mapped to someplace that was outside of the reference image boundaries.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{predicted_0.png}
+    \caption{An Image prediction generated using algorithm 1}
+    \label{fig:image_prediction}
+\end{figure}
+
+\subsubsection{Optical Flow}
+
+Dense correspondence between the reference and comparison frames is the core mechanism by which the base mesh is refined. Following Newcombe and Davison \cite{newcombe2010}, we compute optical flow not between raw image pairs, but between a synthesized view prediction and the true comparison image. Because the view prediction already accounts for the rotational component of camera motion, the residual flow field measures only the geometric error in the current mesh estimate, dramatically reducing the displacement magnitudes that the flow algorithm must handle.
+
+The flow is computed by minimizing the TV-L$^1$ energy function \cite{wedel2009}:
+
+\begin{equation}
+    \mathbf{E_u} = \int_\Omega \lambda |I_0(\mathbf{x}) - I_1(\mathbf{x} + \mathbf{u}(\mathbf{x}))| \, d\mathbf{x} + \int_\Omega |\nabla \mathbf{u}| \, d\mathbf{x}
+\end{equation}
+
+where $I_0$ and $I_1$ are the image pair, $\mathbf{u}$ is the displacement field, and $\lambda$ provides a trade-off between the data fidelity and regularization term. The data term provides robustness to image data errors, and the regularization allows flow discontinuities at occlusion boundaries while producing smooth fields elsewhere \cite{newcombe2010}.
+
+
+The minimization of this function is done using the method described in \cite{wedel2009}. Wherein they define an auxiliary variable $\mathbf{v}$, and use the following convex approximation to solve for \(d\) dimensional TV-L$^1$:
+
+\begin{equation}
+\mathbf{E_\theta}=\int_\Omega \{\sum_d |\nabla u_d|+\sum_d\frac{1}{2\theta}(u_d-v_d)^2+\lambda|\rho(v)| \}
+\end{equation}
+
+Where \(\theta\) is a small constant such that v is a sufficiently close approximation of u and \(\rho\) denotes the image residual. Additionally, in the case of optical flow, $\mathbf{u}$ only has 2 dimensions and thus d in this case is 2. From this convex approximation, a solution can be obtained by performing alternating updates to $\mathbf{u}$ and $\mathbf{v}$.
+
+To update $\mathbf{v}$ let $\rho(\mathbf{u}) = I_1(\mathbf{x} + \mathbf{u}_0) + \nabla I_1 \cdot (\mathbf{u} - \mathbf{u}_0) - I_0(\mathbf{x})$ and define the threshold $\kappa = \lambda \theta |\nabla I_1|^2$. The point-wise update for $\mathbf{v}$ is then:
+\begin{equation}
+\mathbf{v} = \mathbf{u} + 
+\begin{cases} 
+\lambda \theta \nabla I_1 & \text{if } \rho(\mathbf{u}) < -\kappa \\
+-\lambda \theta \nabla I_1 & \text{if } \rho(\mathbf{u}) > \kappa \\
+-\rho(\mathbf{u}) \frac{\nabla I_1}{|\nabla I_1|^2} & \text{if } |\rho(\mathbf{u})| \leq \kappa
+\end{cases}
+\end{equation}
+
+Once $\mathbf{v}$ is updated, we then perform an update for $\mathbf{u}$ using a dual formulation, with a dual variable $\mathbf{p}$, as follows:
+\begin{align}
+    \mathbf{p}^{k+1} &= \frac{\mathbf{p}^k + (\tau/\theta) \nabla \mathbf{u}^k}{1 + (\tau/\theta) |\nabla \mathbf{u}^k|} \\
+    \mathbf{u}^{k+1} &= \mathbf{v} + \theta \text{div}(\mathbf{p}^{k+1})
+\end{align}
+where $\tau \leq 1/8$ is the step size. This procedure is only valid for small displacements, and thus is embedded within a coarse-to-fine image pyramid, which will help in avoiding convergence to unfavorable local minima.
+
+\subsubsection{Structure-Texture Decomposition}
+
+A known limitation of intensity-based optical flow is its sensitivity to illumination artifacts such as shadows and shading reflections, which violate the brightness constancy assumption. To address this, we apply a structure-texture decomposition to both the predicted and comparison images before computing flow. The decomposition separates each image into a structural component $I_S$, corresponding to the large-scale geometry of the scene, and a texture component $I_T = I - I_S$, containing fine-scale detail from which illumination artifacts have been largely removed as seen in figure ~\ref{fig:decomposition}. As shown in \cite{wedel2009}, computing flow on the texture component yields substantially more accurate estimates in the presence of shadows and reflections. In our implementation, this decomposition is computed using a skimage library which implements the algorithm described in \cite{chambolle2004tv}. We pass the texture images obtained from this algorithm to the flow computation in place of the originals.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{decomposition.png}
+    \caption{Figure taken from \cite{wedel2009} which demonstrates how shading has minimal effect on the texture component of a structure texture decomposition. Here the leftmost image is the original, the central image is the structure image and the right most image is the texture image}
+    \label{fig:decomposition}
+\end{figure}
+
+\subsubsection{Forward-Backward Consistency}
+
+Optical flow estimation is inherently unreliable in occluded regions, where a pixel visible in one frame has no correspondence in the other. To discard such unreliable flow vectors before they influence the scene flow update, we apply a forward-backward consistency check. For each pixel, we compute the forward flow $\mathbf{u}_{fwd}$ from the predicted image to the comparison image, and the backward flow $\mathbf{u}_{bwd}$ in the reverse direction. When there is no occlusion, and the optic flow is accurate the backward flow should point in the opposite direction of the forward flow: $\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{u}_{bwd}(\mathbf{x} + \mathbf{u}_{fwd}(\mathbf{x}))=0$. Let $\mathbf{w}(\mathbf{x})=\mathbf{u}_{bwd}(\mathbf{x} + \mathbf{u}_{fwd}(\mathbf{x}))$, then a pixel's flow is marked valid only if this value falls below an adaptive threshold proportional to the local flow magnitude as follows:
+\begin{equation}
+|\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{w}(\mathbf{x})|^2 \lt 0.01(|\mathbf{u}_{fwd}|^2+|\mathbf{w}(\mathbf{x})|^2)+0.5
+\end{equation}
+
+This approach, motivated by the occlusion reasoning in \cite{sundaram2010}, ensures that flow vectors in occluded or poorly constrained regions, such as those which are close to black regions generated by holes in the base mesh, do not contribute to \(\lambda_j\), which is done by adding these outlier indexes to the mask generated in section 3.1.1.
+
+\subsection{Scene Flow}
+
+Given the Dense correspondences obtained in the previous section, we now describe how they are used to deform the base mesh into a more accurate depth map. The core idea, illustrated in Figure ~\ref{fig:sceneflow}, is that a small 3D displacement $\Delta\mathbf{x}_j$ of a surface point $\mathbf{x}_j$ induces a proportional image displacement $\Delta\mathbf{u}^i_j$ in each camera $i$. For small displacements, this relationship can be approximated using a first-order Taylor expansion of the projection function $\mathbf{P}^i$ around $\mathbf{x}_j$:
+
+\begin{equation}
+    \Delta\mathbf{u}^i_j = \mathbf{J}^i_{\mathbf{x}_j} \Delta\mathbf{x}_j
+\end{equation}
+
+where $\mathbf{J}^i_{\mathbf{x}_j}$ is the Jacobian of the projection evaluated at $\mathbf{x}_j$:
+
+\begin{equation}
+\mathbf{J}^i_{\mathbf{x}_j} \equiv \left.\frac{\partial \mathbf{P}^i}{\partial \mathbf{x}}\right|_{\mathbf{x}_j}
+=
+\begin{bmatrix}
+\frac{\partial P^i_u}{\partial x} & \frac{\partial P^i_u}{\partial y} & \frac{\partial P^i_u}{\partial z} \\[4pt]
+\frac{\partial P^i_v}{\partial x} & \frac{\partial P^i_v}{\partial y} & \frac{\partial P^i_v}{\partial z}
+\end{bmatrix}_{\mathbf{x}_j}
+\end{equation}
+
+The optical flow $\Delta\mathbf{u}^i_j$ for each comparison camera $i$ is obtained from the view-predictive flow computed in the previous stage, giving us up to $2n$ constraints per surface point, where $n$ is the number of comparison frames. Unfortunately, directly solving for the full 3D update $\Delta\mathbf{x}_j \in \mathbb{R}^3$ from these image-space measurements is problematic, as there are infinitely many possible 3D displacements that produce the same projected change.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{sceneflow_diagram.png}
+    \caption{Geometry of our scene flow update. All updates to the base surface vertices are constrained along viewing rays of the reference camera. Figure taken from \cite{newcombe2010}}
+    \label{sceneflow}
+\end{figure}
+
+\subsubsection{Ray Constraint}
+
+To rectify this issue, we follow \cite{newcombe2010} in restricting all surface updates to lie along the viewing ray from the reference camera. Since any deformation of a point $\mathbf{x}_j$ that stays on the same reference ray produces no change in its reference-frame projection, this restriction results in following constraint for the scene flow vector:
+
+\begin{equation}
+    \Delta\mathbf{x}_j = \mathbf{r}_j \lambda_j
+\end{equation}
+
+where $\lambda_j \in \mathbb{R}$ is a scalar depth update and $\mathbf{r}_j$ is the unit direction of the reference ray:
+
+\begin{equation}
+    \mathbf{r}_j = \frac{\mathbf{R}^{ref}_{cw} \, [\mathbf{u}^{ref\,T}_j \mid 1]}{\|\mathbf{R}^{ref}_{cw} \, [\mathbf{u}^{ref\,T}_j \mid 1]\|}
+\end{equation}
+
+Substituting this constraint back into the scene flow equation reduces the number of unknowns from three to one per vertex:
+
+\begin{equation}
+    \Delta\mathbf{u}^i_j = \mathbf{K}^i_j \lambda_j, \qquad \mathbf{K}^i_j \equiv \mathbf{J}^i_{\mathbf{x}_j} \mathbf{r}_j
+\end{equation}
+
+where $\mathbf{K}^i_j \in \mathbb{R}^2$ is the projection of the ray through the Jacobian for camera $i$.
+
+\subsubsection{Solving for the Depth Update}
+
+Stacking the two-component equations from all $n$ comparison cameras gives an overdetermined linear system in $\lambda_j$:
+
+\begin{equation}
+    \begin{bmatrix} K^{[u]\,1}_j \\ K^{[v]\,1}_j \\ \vdots \\ K^{[u]\,n}_j \\ K^{[v]\,n}_j \end{bmatrix} \lambda_j
+    =
+    \begin{bmatrix} \Delta u^1_j \\ \Delta v^1_j \\ \vdots \\ \Delta u^n_j \\ \Delta v^n_j \end{bmatrix}
+\end{equation}
+
+While this could in general be solved by least-squares matrix factorization methods such as QR which would be more numerically stable, we instead exploit the scalar nature of $\lambda_j$ to obtain the closed-form normal equation solution:
+
+\begin{equation}
+    \lambda_j = \frac{\sum_{a=1}^{2n} k_a u_a}{\sum_{a=1}^{2n} k_a^2}
+\end{equation}
+
+where $k_a$ and $u_a$ are the scalar elements of $\mathbf{K}_j$ and $\Delta\mathbf{u}_j$ respectively. The primary reason we use this formulation in our implementation because it allows us to apply the valid pixel mask from Section 3.1 and the forward-backward consistency mask from Section 3.1.4 by simply skipping invalid pixels when we perform the accumulation of the numerator and denominator. The updated world point is then:
+
+\begin{equation}
+    \mathbf{x}'_j = \mathbf{x}_j + \mathbf{r}_j \lambda_j
+\end{equation}
+
+and the new depth map is recovered as the Euclidean distance from the reference camera center to each updated point, which is then used to obtain a new mesh as shown in Figure ~\ref{fig:sceneflow_comparison} which illustrates the deformation of the base mesh after one scene flow update.
+
+\begin{figure}[h]
+    \centering
+    \begin{subfigure}[t]{0.48\columnwidth}
+        \centering
+        \includegraphics[width=\linewidth]{basemesh.png}
+        \caption{Base mesh before scene flow}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.48\columnwidth}
+        \centering
+        \includegraphics[width=\linewidth]{refined_1.png}
+        \caption{Mesh after scene flow update}
+    \end{subfigure}
+    \caption{Deformation of the base mesh by a single scene flow update.}
+    \label{fig:sceneflow_comparison}
+\end{figure}
+
+\subsubsection{Iterative Refinement}
+
+Because the linearization of the projection function is only valid for small displacements, the update derived above is an approximation that improves as $\mathbf{x}_j$ approaches the true surface. Additionally, the formulation above can also be derived using Gauss-Newton with residual $\mathbf{r}(\lambda_j)=\mathbf{u'}^i_j-P^i(\mathbf{x(\lambda_j)})$, where $\mathbf{x}(\lambda_j)=\mathbf{x}_j+\lambda_j\mathbf{r}_j$.
+
+To resolve this non-linear optimization problem, the system employs an iterative outer loop. After each scene flow update, the resulting depth map is denoised and retriangulated into a updated mesh. A fresh view prediction is then synthesized from this mesh to recompute optical flow against each comparison image, yielding smaller residuals that drive subsequent corrections. As described in \cite{newcombe2010}, this outer loop runs for up to three iterations, or until the mean reprojection error falls below a certain threshold. In order to ensure that the depth map remains smooth while not falsely inducing smoothness along sharp edges, we apply the TV-L$^1$ described in the following section to denoise after each scene flow update.
+
+\subsection{Depth Map Denoising}
+
+As noted by Newcombe and Davison \cite{newcombe2010}, inaccuracies in the 
+current 3D model can cause the view prediction step to induce false 
+discontinuities in the synthesized image. To alleviate this, we apply a 
+denoising step to the reference-frame depth map before retriangulating the 
+mesh for the next iteration. While a Gaussian kernel with a 15-pixel support 
+is suggested as a simpler alternative, we instead utilize a $g$-weighted 
+TV-$L^1$ denoising algorithm, which preserves sharp depth boundaries at 
+object edges while smoothing noise in homogeneous regions.
+
+The algorithm seeks a denoised depth map $D'$ that minimizes:
+\begin{equation}
+E_d = \int_\Omega \lambda |D(\mathbf{x}) - D'(\mathbf{x})| \, d\mathbf{x} 
+    + \int_\Omega g(\mathbf{x}) |\nabla D'(\mathbf{x})| \, d\mathbf{x}
+\end{equation}
+where the first term enforces data fidelity to the original depth $D$ via 
+the robust $L^1$ norm, and the second term is a $g$-weighted Total Variation 
+regularizer. The edge-aware weight $g$ is derived from the spatial gradient 
+of the reference image:
+
+\begin{equation}
+g(|\nabla I_{ref}|)=\exp(-\alpha|\nabla I_{ref}|^\beta)
+\end{equation}
+
+As can be seen, the weight will be large when the spatial gradient is small and vice-versa, which implies that the minimization allows for sudden shifts in depth along an edge.
+
+The function is minimized using a first-order primal-dual scheme similar to that used for optical flow. An important  implementation detail is that gradients are only computed between pairs of pixels that both have valid depth ($D > 0$), preventing holes in the depth map from pulling adjacent valid regions toward zero through the regularization term. The numerical procedure is outlined in Algorithm~\ref{alg:denoise}.
+
+\begin{algorithm}[H]
+\caption{$g$-weighted TV-$L^1$ Depth Denoising}
+\label{alg:denoise}
+\begin{algorithmic}[1]
+    \Require Depth $D$, reference image $I_{ref}$, 
+             parameters $(\alpha, \beta, \lambda, \tau, \sigma, N_{it})$
+    \Ensure Denoised depth map $D'$
+    \Statex \textbf{Preprocessing:}
+    \State Compute gradients $\nabla I_{ref}$ and gradient magnitude 
+           $|\nabla I_{ref}|$
+    \State $g \gets \exp\!\left(-\alpha \cdot 
+           \left(|\nabla I_{ref}|\right)^\beta\right)$
+    \State $M \gets \mathbf{1}[D > 0]$ \Comment{Valid pixel mask}
+    \Statex \textbf{Initialization:}
+    \State $D' \gets D,\quad \bar{D} \gets D,\quad \mathbf{p} \gets \mathbf{0}$
+    \Statex \textbf{Optimization Loop:}
+    \For{$i = 1$ \textbf{to} $N_{it}$}
+        \State $D'_{old} \gets D'$
+        \State $\nabla \bar{D} \gets $ forward differences of $\bar{D}$, 
+               masked by $M$ between pixel pairs
+        \State $\tilde{\mathbf{p}} \gets \mathbf{p} + \sigma \nabla \bar{D}$
+        \State $\mathbf{p} \gets \tilde{\mathbf{p}} \;/\; 
+               \max\!\left(1,\; |\tilde{\mathbf{p}}| / g\right)$
+               \Comment{Project dual onto $\|\mathbf{p}\|_\infty \leq g$}
+        \State $v \gets D' + \tau\, \mathrm{div}(\mathbf{p})$
+        \State $D' \gets D + \mathrm{clip}(v - D,\; -\tau\lambda,\; \tau\lambda)$
+               \Comment{$L^1$ proximal step}
+        \State $\theta \gets 1 / \sqrt{1 + 0.5i}$
+        \State $\bar{D} \gets D' + \theta(D' - D'_{old})$
+               \Comment{Over-relaxation}
+    \EndFor
+    \State $D'[D \leq 0] \gets 0$ \Comment{Preserve invalid regions}
+    \State \Return $D'$
+\end{algorithmic}
+\end{algorithm}
+
+Although \cite{newcombe2010} recommends $\alpha = 10$ and $\beta = 1$, we found that these parameters were inaccurate, often inducing excessive changes in depth wherever there is even the slightest hint of an edge. This resulted in objects which were highly textured having many smaller discontinuities unlike the smoothness present in reality, as seen in figure ~\ref{denoise}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{denoise_example.png}
+    \caption{Mesh after denoising with $\alpha=10$ and global gradient 
+             normalization, showing spurious depth steps on surfaces that 
+             are flat in reality.}
+    \label{denoise}
+\end{figure}
+
+\subsection{Global Integration}
+
+The scene flow stage produces a refined depth map for a bunch of bundles, but our final goal is a single mesh covering the entire scene. In order to achieve this, we need to convert each depth map into a triangle mesh and then merge them into a running global model. We need to do this without duplicating geometry where (consecutive) bundles overlap.
+
+\subsubsection{Per-Bundle Triangulation}
+
+We are given a depth map $\mathbf{D}$ from a (reference) pose $(R_{ref}, t_{ref})$. From this we can recover a 3D vertex for each (valid) pixel by back-projecting along its reference ray (Eq.~(9) of \cite{newcombe2010}):
+\begin{equation}
+    \mathbf{v}_j = \mathbf{D}(\mathbf{u}_j) \mathbf{r}_j + \mathbf{t}_{ref},
+\end{equation}
+here $\mathbf{r}_j$ is the (unit) reference ray (Section 3.5.1 of \cite{newcombe2010}). Now we can triangulate: each $2\times 2$ block of valid pixels is split into two triangles along its diagonal. This procduces something that is dense and consistent across bundles. Per-vertex normals are then obtained from central finite differences of the back-projected grid: $\mathbf{n}_j = \Delta\mathbf{v}_x \times \Delta\mathbf{v}_y$. This is the same construction as \cite{newcombe2010}.
+
+\subsubsection{Surface Error Filtering}
+
+The scene flow update additionally produces two error measures at every pixel: 1. value error $E^v$ which is the residual of the linear system the depth update was the solution to, and 2. a surface error $E^s$ that measures reprojection error of the (updated) point in the comparison cameras.
+We follow \cite{newcombe2010} and drop vertices whose errors measure above point to the (local) solve as being unreliable. Concretely, we keep vertices using:
+\begin{equation}
+    \neg (E^v_j < \tau_v \wedge E^s_j > \tau_s),
+\end{equation}
+which is the inverse of the reject condition implemented in our code. We set our thresholds to $\tau_v = 0.9$ and $\tau_s = 0.001$. Faces whose three vertices do not all survive the filter are removed. Optionally, we also support a variant of the surface threshold in which $\tau_s$ is set to the 75th percentile of the valid surface errors observed in the current bundle, which could make the filter more robust.
+
+\subsubsection{Fusion}
+
+Once a per-bundle mesh has been triangulated and filtered, we fuse it into the running global model in the following way. Not that naively concatenating meshes would leave duplicated and slightly inconsistent geometry wherever multiple bundles overlap. \cite{newcombe2010} avoid this by removing from each new mesh all vertices whose distance to the integrated surface is below a small threshold $\epsilon_{dist}$. We adopt the same strategy.
+
+Finally, from the bundle's reference pose, we render the (current) global model using Open3D. This produces a $z$-depth map $z_{glob}(\mathbf{u})$ that is aligned to the reference image grid. Each new vertex $\mathbf{v}_j$ is then projected into the reference view: $\mathbf{u}_j = \pi(K, R_{ref}, t_{ref}, \mathbf{v}_j)$. We drop whenever there is already nearby geometry along the same viewing ray:
+\begin{align}
+    \text{discard } \mathbf{v}_j \quad \text{iff} \quad & z_{glob}(\mathbf{u}_j) > 0 \nonumber \\
+    & \wedge |z_j - z_{glob}(\mathbf{u}_j)| < \epsilon_{dist},
+\end{align}
+where $z_j$ is $z$-coordinate of $\mathbf{v}_j$ (in camera-frame). We discrard Vertices that either project outside the image bounds or that fall behind the reference camera. The surviving vertices and their faces are appended to the global vertex and face arrays, yielding the next iteration of the global model. We use $\epsilon_{dist} = 0.01$ in scene units, which is comparable to the per-vertex baseline of the bundles in our datasets.
+
+One small deviation from \cite{newcombe2010} is that we run a few Taubin smoothing iterations on each bundle's mesh before fusing it, which should clean up the high-frequency noise from the triangulation without shrinking the mesh. This is done locally, so it does not propagate across bundles. After every bundle has been integrated, the resulting global model is exported as a PLY file for evaluation.
+
+% ── 4. Experiments ────────────────────────────────────────────────────────────
+\section{Experiments}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+
+\subsection{Dataset and Setup}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
+\subsection{Results}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
+% ── 5. Conclusions ────────────────────────────────────────────────────────────
+\section{Conclusions}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+
+% ── Acknowledgements (optional) ───────────────────────────────────────────────
+\section*{Acknowledgements}
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+
+% ── References ────────────────────────────────────────────────────────────────
+\section*{References}
+
+% Option A: manual references (matching the plain numbered style of the paper)
+\begingroup
+\renewcommand{\section}[2]{}   % suppress duplicate "References" heading from bibliography
+\small
+\begin{thebibliography}{99}
+
+\bibitem{newcombe2010}
+R.~A. Newcombe and A. J. Davison.
+\newblock Live dense reconstruction with a single moving camera.
+\newblock \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 2010.
+
+\bibitem{PTAM}
+G.~Klein and D.~Murray.
+\newblock Parallel tracking and mapping for small AR workspaces.
+\newblock \textit{Proceedings of the International Symposium on Mixed and Augmented Reality (ISMAR)}, 2007.
+
+\bibitem{COLMAP}
+J.~L. Schönberger and J.~M. Frahm.
+\newblock Structure-from-motion revisited.
+\newblock \textit{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)}, 2016.
+
+\bibitem{TV-L1}
+C.~Zach, T.~Pock, and H.~Bischof.
+\newblock A duality based approach for realtime TV-L1 optical flow.
+\newblock \textit{Proceedings of the Joint Pattern Recognition Symposium}, 2007.
+
+\bibitem{Ohtake03b}
+Y.~Ohtake, A.~Belyaev, and H.-P. Seidel.
+\newblock A multi-scale approach to 3D scattered data interpolation with compactly supported basis functions.
+\newblock \textit{Proceedings of Shape Modeling International}, 2003.
+
+\bibitem{Poisson}
+M.~Kazhdan, M.~Bolitho, and H.~Hoppe.
+\newblock Poisson surface reconstruction.
+\newblock \textit{Proceedings of the Eurographics Symposium on Geometry Processing (SGP)}, 2006.
+
+\bibitem{wedel2009}
+A.~Wedel, T.~Pock, C.~Zach, H.~Bischof, and D.~Cremers.
+\newblock An improved algorithm for {TV-L1} optical flow.
+\newblock In \textit{Proceedings of the Dagstuhl Seminar on Statistical and Geometrical Approaches to Visual Motion Analysis}, pages 23--45, 2009.
+
+\bibitem{sundaram2010}
+N.~Sundaram, T.~Brox, and K.~Keutzer.
+\newblock Dense point trajectories by {GPU}-accelerated large displacement optical flow.
+\newblock In \textit{Proceedings of ECCV}, pages 438--451, 2010.
+
+\bibitem{chambolle2004tv}
+A.~Chambolle.
+\newblock An algorithm for total variation minimization and applications.
+\newblock \textit{Journal of Mathematical Imaging and Vision}, 20:89--97, 2004.
+
+\end{thebibliography}
+\endgroup
+
+\end{document}

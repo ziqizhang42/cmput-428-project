@@ -189,13 +189,18 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
         depth[depth <= 0] = base_depth[depth <= 0]
         
         save_depth_vis(depth, it_dir / "depth_sceneflow.png", "sceneflow")
+        save_mesh_ply(depth, ref.pose, camera, it_dir / "mesh_sceneflow.ply", "sceneflow mesh")
 
         # Denoise before next iteration's view prediction
         logger.info(f"Applying TV-L1 depth map denoising...")
         depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=5.0, beta=1.0, lambda_data=0.1, num_iters=100)
         save_depth_vis(depth, it_dir / "depth_denoised.png", "denoised")
+<<<<<<< HEAD
 
         save_mesh_ply(depth, ref.pose, camera, it_dir / "iter_mesh.ply", f"iter {it} mesh")
+=======
+        save_mesh_ply(depth, ref.pose, camera, it_dir / "mesh_denoised.ply", "denoised mesh")
+>>>>>>> refs/remotes/origin/main
         
         # Also catch any other pixels that somehow became 0 or negative
         invalid = depth <= 0
