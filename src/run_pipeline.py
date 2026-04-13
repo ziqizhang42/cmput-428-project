@@ -96,6 +96,7 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
     for img in imgs_comp:
         _, t = structure_texture_decomposition_skimage(img)
         t = t.astype(np.float64)
+
         imgs_comp_tex.append(t)
 
     # Save reference and comparison images
@@ -191,8 +192,10 @@ def process_bundle(bundle, camera, mesh, bundle_index: int):
 
         # Denoise before next iteration's view prediction
         logger.info(f"Applying TV-L1 depth map denoising...")
-        depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=10.0, beta=1.0, lambda_data=2.0, num_iters=100)
+        depth = denoise_depth_map_tvl1(D=depth, I_ref=img_ref, alpha=5.0, beta=1.0, lambda_data=0.1, num_iters=100)
         save_depth_vis(depth, it_dir / "depth_denoised.png", "denoised")
+
+        save_mesh_ply(depth, ref.pose, camera, it_dir / "iter_mesh.ply", f"iter {it} mesh")
         
         # Also catch any other pixels that somehow became 0 or negative
         invalid = depth <= 0
@@ -366,10 +369,4 @@ if __name__ == "__main__":
     global_model = GlobalModel(vertices=np.asarray(final_o3d.vertices), faces=np.asarray(final_o3d.triangles), normals=np.asarray(final_o3d.vertex_normals))
 
     export_ply(global_model, OUTPUT_PATH)
-
-    logger.info("Texturing and saving final reconstruction mesh...")
-    final_mesh = BaseMesh(vertices=global_model.vertices, faces=global_model.faces, normals=global_model.normals)
-    final_colors = texture_mesh(final_mesh, sfm_result)
-    save_textured_mesh(final_mesh, final_colors, workspace / "reconstruction_textured.ply")
-
     logger.info(f"Done: {bundle_index} bundles, {len(global_model.vertices)} vertices")
