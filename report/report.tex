@@ -61,7 +61,7 @@
 % ── Abstract ──────────────────────────────────────────────────────────────────
 \begin{abstract}
 \smallskip
-This project report details a multi-stage dense 3D reconstruction pipeline that utilizes view-predictive optical flow to refine an initial, coarse, reconstruction. We employ a combination of Structure-from-Motion (SfM) for initial sparse mapping and utilize optical flows to perform dense scene flow updates. Our method improves the fidelity of surface models derived from monocular sequences, particularly by leveraging photometric consistency to bridge the gap between sparse point clouds and detailed dense geometry.
+This project report details a multi-stage dense 3D reconstruction pipeline that utilizes view-predictive optical flow to refine an initial, coarse, reconstruction. We employ Structure-from-Motion (SfM) for initial sparse mapping and utilize optical flow to perform dense scene flow updates. Our method improves the fidelity of surface models derived from monocular sequences, particularly by leveraging photometric consistency to bridge the gap between sparse point clouds and detailed dense geometry.
 \end{abstract}
 
 % ── 1. Introduction ───────────────────────────────────────────────────────────
@@ -78,7 +78,7 @@ Our implementation prioritizes clarity and modularity over real-time performance
 
 The inspiration for this project is the work presented in \cite{newcombe2010}, which introduces a method for generating dense 3D reconstructions by leveraging a sparse base produced using structure-from-motion (SfM). The appeal of this approach is the ability to take a coarse initial model and iteratively refine it into a high accuracy final model. Our implementation focuses on the core pipeline described in this system, specifically the transition from sparse mapping to dense surface estimation through scene-flow updates computed using view-predictive optical flow.
 
-A critical component of monocular reconstruction is the underlying tracking and mapping system. The original system in \cite{newcombe2010} utilizes Parallel Tracking and Mapping (PTAM) \cite{PTAM} to provide real-time camera poses and a sparse point cloud. However, due to the limited availability of PTAM implementations compatible with Python, we substituted this component with ColMap \cite{COLMAP}, another SfM library which was readily availanle. While ColMap is typically used for offline processing, it provides the sparse foundation necessary to test the subsequent dense reconstruction stages.
+A critical component of monocular reconstruction is the underlying tracking and mapping system. The original system in \cite{newcombe2010} utilizes Parallel Tracking and Mapping (PTAM) \cite{PTAM} to provide real-time camera poses and a sparse point cloud. However, due to the limited availability of PTAM implementations compatible with Python, we substituted this component with ColMap \cite{COLMAP}, another SfM library which was readily avaliable. While ColMap is typically used for offline processing, it provides the sparse foundation necessary to test the subsequent dense reconstruction stages.
 
 The methods for dense reconstruction from a single camera involved many complex optimization problems. The methods described in \cite{newcombe2010} frequently utilize Variational methods for global energy minimization, such as the TV-L1 optical flow algorithm discussed in \cite{TV-L1} and the denoising technique mentioned in \cite{newcombe2010}. These methods ensure that the final product both aligns with what's seen in  the video while still retaining smoothness. In our implementation, we utilize Poisson reconstruction \cite{Poisson} to generate a base mesh from the initial sparse data, which is then used for further refinement. Although the reference paper \cite{newcombe2010} emphasizes live performance, our project prioritizes the algorithmic pipeline's ability to enhance model fidelity and photo-consistency by building upon existing SfM data.
 
@@ -118,8 +118,8 @@ In this section we walk through each of the stages listed above in the order tha
 
 \subsection{Structure from Motion}
 
-The goal of the first stage of the pipeline is to recover camera intrinsics, per-frame extrinsics, and ultimately sparse 3D point cloud from the input video.
-The original system in \cite{newcombe2010} uses PTAM \cite{PTAM} to obtain these quantities in real-time. Since we had trouble finding a existing workable implimentaiton of PTAM, our implementation uses COLMAP \cite{COLMAP} via the \texttt{pycolmap} bindings. This provides a well-tested incremental SfM backend. Although COLMAP is a batch method and therefore we have to sacrifice the live aspect of \cite{newcombe2010}, its outputs (calibration matrix, world-to-camera poses, and a reprojection-filtered sparse point cloud) are exactly what we need for the remainder of the pipeline and so was selected.
+The goal of the first stage of the pipeline is to recover camera intrinsics, per-frame extrinsics, and ultimately a sparse 3D point cloud from the input video.
+The original system in \cite{newcombe2010} uses PTAM \cite{PTAM} to obtain these quantities in real-time. Since we had trouble finding a existing workable implementation of PTAM, our implementation uses COLMAP \cite{COLMAP} via the \texttt{pycolmap} bindings. This provides a well-tested incremental SfM backend. Although COLMAP is a batch method and therefore we have to sacrifice the live aspect of \cite{newcombe2010}, its outputs (calibration matrix, world-to-camera poses, and a reprojection-filtered sparse point cloud) are exactly what we need for the remainder of the pipeline and so was selected.
 
 In COLMAP's pinhole model, a 3D world point $\mathbf{X}_j \in \mathbb{R}^3$ projects into an image $i$ via
 \begin{equation}
@@ -132,10 +132,10 @@ where $\tilde{\cdot}$ denotes homogeneous coordinates. The incremental mapper \c
 where $\hat{\mathbf{u}}^i_j$ is the observed feature location and $\rho(\cdot)$ is a loss that down-weights outliers from incorrect matches \cite{COLMAP}. The output of this is the $(\mathbf{K}, \mathbf{R}_i, \mathbf{t}_i, \mathbf{X}_j)$ that the remainder of our pipeline needs.
 
 Given a directory of frames, we run feature extraction under this pinhole camera model and perform sequential matching. When multiple reconstructions are produced we retain the one containing the largest number of registered images.
-Following this we call COLMAP's image undistortion routine so that all subsequent stages may assume a pure pinhole projection, which is an assumption implicit in both the view-prediction of Section 3.3 and the projection Jacobian of Section 3.4 of \cite{newcombe2010}.
+Following this we call COLMAP's image undistortion routine so that all subsequent stages may assume a pure pinhole projection, which is an assumption implicit in both the view-prediction and the projection Jacobian.
 The undistorted reconstruction is then parsed into a \texttt{CameraModel} holding $K$ and image dimensions, a list of \texttt{Keyframe}s storing world-to-camera pose $(R, t)$ and the $3\times 4$ projection matrix $P = K[R | t]$, and a list of \texttt{SparsePoint}s.
 
-To remove invalid triangulations that would otherwise corrupt the base mesh, we filter the COLMAP point cloud by discarding all points whose track length is too low or whose mean reprojection error is too high. Note that the point cloud produced by COLMAP is unoriented but the Poisson reconstruction used in the next stage requires consistently oriented surface normales. This means that we have to estimate a normal at each surviving point by averaging the (negated) viewing directions of every camera that observes it. This should guarantee that the resulting normal points back toward the cameras that saw the surface and thus faces outward from the object. An example of the resulting sparse point cloud is shown below (Figure~\ref{fig:sparse_point_cloud}).
+To remove invalid triangulations that would otherwise corrupt the base mesh, we filter the COLMAP point cloud by discarding all points whose track length is too low or whose mean reprojection error is too high. Note that the point cloud produced by COLMAP is unoriented but the Poisson reconstruction used in the next stage requires consistently oriented surface normals. This means that we have to estimate a normal at each surviving point by averaging the (negated) viewing directions of every camera that observes it. This should guarantee that the resulting normal points back toward the cameras that saw the surface and thus faces outward from the object. An example of the resulting sparse point cloud is shown below (Figure~\ref{fig:sparse_point_cloud}).
 
 \begin{figure}[h]
     \centering
@@ -164,7 +164,7 @@ Second, the mesh is cropped to a padded bounding box of the point cloud. This el
 Next, we cluster connected components and only keep the largest one, discarding any small islands that were produced.
 Finally, we apply some small number of Taubin smoothing iterations to smooth out the jagged ``octree'' look of the Poisson output without shrinking the mesh, and fix the triangle winding so that all faces are oriented consistently.
 
-In order to interface with the next (view-prediction) stage, the cleaned mesh is loaded into an Open3D raycasting scene once and reused across all keyframes. So given a camera pose and intrinsics, we generate a ray bundle and cast it against the mesh, recording each pixel the Euclidean distance from the camera center to the intersection.
+In order to interface with the next (view-prediction) stage, the cleaned mesh is loaded into an Open3D raycasting scene once and reused across all keyframes. So given a camera pose and intrinsics, we generate a ray bundle and cast it against the mesh, recording the Euclidean distance from the camera center to the intersection for each pixel.
 Pixels whose rays miss the surface (for example, background regions or holes left by the cleanup above) are marked with zero depth and propagate to the view prediction as invalid so they are later excluded from the scene flow update. The resulting depth maps form the direct input to the view-predictive optical flow stage described next.
 An example of the base mesh produced by this pipeline is shown in Figure~\ref{fig:base_mesh}.
 
@@ -200,7 +200,7 @@ The resulting bundles are consumed by the view-prediction and scene-flow stages 
 \subsubsection{View-Prediction}
 The purpose of the view prediction stage is to generate a virtual image that represents how a scene should appear from the perspective of a specific comparison camera, given our current 3D reconstruction. Following the methodology in \cite{newcombe2010}, this "synthetic" view serves as a intermediate step for computing view-predictive optical flow. By comparing the predicted image with the actual captured image from the comparison pose, the system can identify discrepancies caused by inaccuracies in the base mesh.
 
-Unlike the implementation described in \cite{newcombe2010}, wherein the reference frame image is back-projected onto the base model, then said textured model is projected into the reference. We instead use the base mesh to obtain a depth map for the comparison frame and use it to restore the 3D coordinates where each ray in the image intersects the base mesh and project those points into the reference frame. Once we do that we have a map for which pixel in the reference corresponds to a given pixel in the comparison so we perform a sampling to obtain our final image prediction. This process is shown in more detail in algorithm 1.
+Unlike the implementation described in \cite{newcombe2010}, wherein the reference frame image is back-projected onto the base model, then said textured model is projected into the comparison. We instead use the base mesh to obtain a depth map for the comparison frame and use it to restore the 3D coordinates where each ray in the image intersects the base mesh and project those points into the reference frame. Once we do that we have a map for which pixel in the reference corresponds to a given pixel in the comparison so we perform a sampling to obtain our final image prediction. This process is shown in more detail in algorithm 1.
 
 \begin{algorithm}
 \caption{View-Predictive Image Synthesis}
@@ -291,7 +291,7 @@ A known limitation of intensity-based optical flow is its sensitivity to illumin
 
 Optical flow estimation is inherently unreliable in occluded regions, where a pixel visible in one frame has no correspondence in the other. To discard such unreliable flow vectors before they influence the scene flow update, we apply a forward-backward consistency check. For each pixel, we compute the forward flow $\mathbf{u}_{fwd}$ from the predicted image to the comparison image, and the backward flow $\mathbf{u}_{bwd}$ in the reverse direction. When there is no occlusion, and the optic flow is accurate the backward flow should point in the opposite direction of the forward flow: $\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{u}_{bwd}(\mathbf{x} + \mathbf{u}_{fwd}(\mathbf{x}))=0$. Let $\mathbf{w}(\mathbf{x})=\mathbf{u}_{bwd}(\mathbf{x} + \mathbf{u}_{fwd}(\mathbf{x}))$, then a pixel's flow is marked valid only if this value falls below an adaptive threshold proportional to the local flow magnitude as follows:
 \begin{equation}
-|\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{w}(\mathbf{x})|^2 \lt 0.01(|\mathbf{u}_{fwd}|^2+|\mathbf{w}(\mathbf{x})|^2)+0.5
+|\mathbf{u}_{fwd}(\mathbf{x}) + \mathbf{w}(\mathbf{x})|^2 < 0.01(|\mathbf{u}_{fwd}|^2+|\mathbf{w}(\mathbf{x})|^2)+0.5
 \end{equation}
 
 This approach, motivated by the occlusion reasoning in \cite{sundaram2010}, ensures that flow vectors in occluded or poorly constrained regions, such as those which are close to black regions generated by holes in the base mesh, do not contribute to \(\lambda_j\), which is done by adding these outlier indexes to the mask generated in section 3.4.1.
@@ -606,11 +606,23 @@ Visible surface accuracy improves as well falling from $21.4$mm to $16.8$mm on t
 Completeness on the foreground also improves, from $23.9$mm to $18.6$mm, indicating that the refinement is not simply trimming uncertain geometry but is pulling surviving vertices closer to the true surface.
 
 The overlap numbers, which move in the opposite direction, tell us where these gains come from.
-Overlap drops by roughly $9\%$ which is the direct effect of the surface-error filtering since vertices whose flow residuals exceed the value or surface thresholds are removed, leaving holes in places where the optical flow could not produce a reliable update.
-So the final mesh trades coverage for accuracy as it predicts over a smaller region of the scene, but predicts closer to the truth when it does predict.
+Overlap drops by roughly $9\%$, which leaves more visible holes in the final mesh.
+These holes are the result of the masking stages that each marks pixels as unreliable: view prediction drops pixels whose rays miss the base mesh, the forward-backward consistency check removes flow vectors that do not make the round-trip, and the surface-error filter drops vertices whose flow residuals exceed $\tau_v$ or $\tau_s$.
+A pixel that fails any of these will not make it to the final mesh, so the pipeline is trading coverage for accuracy: it predicts over a smaller region of the scene, but is closer to the truth where it does predict.
 
 The full-scene completeness is large ($150$-$157$mm) for both methods when compared to the foreground numbers.
 This indicates missing walls, ceiling, and floor. The completeness metric picks this up because every point on the GT wall has its nearest predicted neighbour far away on a foreground object.
+
+Additionally, visual inspection from a different angle (Figure~\ref{fig:synthetic_walls}) of a different reconsturction of the same environment reveals structural artifacts: thin vertical ``walls'' rise between the keyboard and other objects on the desk. We believe these are a consequence of the per-bundle triangulation.
+Our pipeline assumes that adjacent pixels sample the same continuous surface. However, at true depth discontinuities, such as the boundary between the keyboard and the forground objects, some of the pixels of the adjacent pixels can lie on the near surface and while others can lie on the far surface. Connecting them causes a long, near-vertical face to be constructed between the two depths, which reduces the visual quality of the consturction.
+These problems illstrate the limitations of our current pipeline despite ``good'' numerical metrics and shows that there is still significant room for improvement.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\columnwidth]{synthetic_walls.png}
+    \caption{Another view of our final reconstruction on \textit{synthetic\_desk\_easy}.}
+    \label{fig:synthetic_walls}
+\end{figure}
 
 \subsection{Depth Denoising Parameter Optimization}
 
