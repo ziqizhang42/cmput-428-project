@@ -37,7 +37,8 @@
           1.0590129037971039
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000000.npy"
+      "depth_z_path": "gt/depth_z/frame_000000.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000000.npy"
     },
     {
       "frame_id": 1,
@@ -70,7 +71,8 @@
           1.051222545061099
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000001.npy"
+      "depth_z_path": "gt/depth_z/frame_000001.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000001.npy"
     },
     {
       "frame_id": 2,
@@ -103,7 +105,8 @@
           1.0434278793970466
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000002.npy"
+      "depth_z_path": "gt/depth_z/frame_000002.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000002.npy"
     },
     {
       "frame_id": 3,
@@ -136,7 +139,8 @@
           1.0356294717291565
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000003.npy"
+      "depth_z_path": "gt/depth_z/frame_000003.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000003.npy"
     },
     {
       "frame_id": 4,
@@ -169,7 +173,8 @@
           1.0278279327154374
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000004.npy"
+      "depth_z_path": "gt/depth_z/frame_000004.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000004.npy"
     },
     {
       "frame_id": 5,
@@ -202,7 +207,8 @@
           1.0200239204994286
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000005.npy"
+      "depth_z_path": "gt/depth_z/frame_000005.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000005.npy"
     },
     {
       "frame_id": 6,
@@ -235,7 +241,8 @@
           1.012218142446104
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000006.npy"
+      "depth_z_path": "gt/depth_z/frame_000006.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000006.npy"
     },
     {
       "frame_id": 7,
@@ -268,7 +275,8 @@
           1.0044113568537731
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000007.npy"
+      "depth_z_path": "gt/depth_z/frame_000007.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000007.npy"
     },
     {
       "frame_id": 8,
@@ -301,7 +309,8 @@
           0.996604374633255
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000008.npy"
+      "depth_z_path": "gt/depth_z/frame_000008.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000008.npy"
     },
     {
       "frame_id": 9,
@@ -334,7 +343,8 @@
           0.988798060945078
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000009.npy"
+      "depth_z_path": "gt/depth_z/frame_000009.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000009.npy"
     },
     {
       "frame_id": 10,
@@ -367,7 +377,8 @@
           0.9809933367849485
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000010.npy"
+      "depth_z_path": "gt/depth_z/frame_000010.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000010.npy"
     },
     {
       "frame_id": 11,
@@ -400,7 +411,8 @@
           0.9731911805072462
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000011.npy"
+      "depth_z_path": "gt/depth_z/frame_000011.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000011.npy"
     },
     {
       "frame_id": 12,
@@ -433,7 +445,8 @@
           0.9653926292758609
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000012.npy"
+      "depth_z_path": "gt/depth_z/frame_000012.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000012.npy"
     },
     {
       "frame_id": 13,
@@ -466,7 +479,8 @@
           0.9575987804312708
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000013.npy"
+      "depth_z_path": "gt/depth_z/frame_000013.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000013.npy"
     },
     {
       "frame_id": 14,
@@ -499,7 +513,8 @@
           0.9498107927624087
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000014.npy"
+      "depth_z_path": "gt/depth_z/frame_000014.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000014.npy"
     },
     {
       "frame_id": 15,
@@ -532,7 +547,8 @@
           0.9420298876715572
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000015.npy"
+      "depth_z_path": "gt/depth_z/frame_000015.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000015.npy"
     },
     {
       "frame_id": 16,
@@ -565,7 +581,8 @@
           0.9342573502202793
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000016.npy"
+      "depth_z_path": "gt/depth_z/frame_000016.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000016.npy"
     },
     {
       "frame_id": 17,
@@ -598,7 +615,8 @@
           0.9264945300442218
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000017.npy"
+      "depth_z_path": "gt/depth_z/frame_000017.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000017.npy"
     },
     {
       "frame_id": 18,
@@ -631,7 +649,8 @@
           0.9187428421245478
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000018.npy"
+      "depth_z_path": "gt/depth_z/frame_000018.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000018.npy"
     },
     {
       "frame_id": 19,
@@ -664,7 +683,8 @@
           0.9110037674037657
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000019.npy"
+      "depth_z_path": "gt/depth_z/frame_000019.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000019.npy"
     },
     {
       "frame_id": 20,
@@ -697,7 +717,8 @@
           0.90327885323381
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000020.npy"
+      "depth_z_path": "gt/depth_z/frame_000020.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000020.npy"
     },
     {
       "frame_id": 21,
@@ -730,7 +751,8 @@
           0.8955697136444503
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000021.npy"
+      "depth_z_path": "gt/depth_z/frame_000021.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000021.npy"
     },
     {
       "frame_id": 22,
@@ -763,7 +785,8 @@
           0.8878780294204098
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000022.npy"
+      "depth_z_path": "gt/depth_z/frame_000022.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000022.npy"
     },
     {
       "frame_id": 23,
@@ -796,7 +819,8 @@
           0.8802055479760083
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000023.npy"
+      "depth_z_path": "gt/depth_z/frame_000023.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000023.npy"
     },
     {
       "frame_id": 24,
@@ -829,7 +853,8 @@
           0.8725540830166936
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000024.npy"
+      "depth_z_path": "gt/depth_z/frame_000024.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000024.npy"
     },
     {
       "frame_id": 25,
@@ -862,7 +887,8 @@
           0.864925513977505
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000025.npy"
+      "depth_z_path": "gt/depth_z/frame_000025.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000025.npy"
     },
     {
       "frame_id": 26,
@@ -895,7 +921,8 @@
           0.8450173497119405
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000026.npy"
+      "depth_z_path": "gt/depth_z/frame_000026.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000026.npy"
     },
     {
       "frame_id": 27,
@@ -928,7 +955,8 @@
           0.8450467277733695
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000027.npy"
+      "depth_z_path": "gt/depth_z/frame_000027.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000027.npy"
     },
     {
       "frame_id": 28,
@@ -961,7 +989,8 @@
           0.8450913188219721
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000028.npy"
+      "depth_z_path": "gt/depth_z/frame_000028.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000028.npy"
     },
     {
       "frame_id": 29,
@@ -994,7 +1023,8 @@
           0.8451517231807937
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000029.npy"
+      "depth_z_path": "gt/depth_z/frame_000029.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000029.npy"
     },
     {
       "frame_id": 30,
@@ -1027,7 +1057,8 @@
           0.8452285062155839
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000030.npy"
+      "depth_z_path": "gt/depth_z/frame_000030.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000030.npy"
     },
     {
       "frame_id": 31,
@@ -1060,7 +1091,8 @@
           0.8453221931995991
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000031.npy"
+      "depth_z_path": "gt/depth_z/frame_000031.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000031.npy"
     },
     {
       "frame_id": 32,
@@ -1093,7 +1125,8 @@
           0.84543326464577
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000032.npy"
+      "depth_z_path": "gt/depth_z/frame_000032.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000032.npy"
     },
     {
       "frame_id": 33,
@@ -1126,7 +1159,8 @@
           0.845562152140223
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000033.npy"
+      "depth_z_path": "gt/depth_z/frame_000033.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000033.npy"
     },
     {
       "frame_id": 34,
@@ -1159,7 +1193,8 @@
           0.845709234702152
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000034.npy"
+      "depth_z_path": "gt/depth_z/frame_000034.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000034.npy"
     },
     {
       "frame_id": 35,
@@ -1192,7 +1227,8 @@
           0.8458748356862145
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000035.npy"
+      "depth_z_path": "gt/depth_z/frame_000035.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000035.npy"
     },
     {
       "frame_id": 36,
@@ -1225,7 +1261,8 @@
           0.8460592202351807
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000036.npy"
+      "depth_z_path": "gt/depth_z/frame_000036.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000036.npy"
     },
     {
       "frame_id": 37,
@@ -1258,7 +1295,8 @@
           0.8462625932825664
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000037.npy"
+      "depth_z_path": "gt/depth_z/frame_000037.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000037.npy"
     },
     {
       "frame_id": 38,
@@ -1291,7 +1329,8 @@
           0.8464850980975909
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000038.npy"
+      "depth_z_path": "gt/depth_z/frame_000038.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000038.npy"
     },
     {
       "frame_id": 39,
@@ -1324,7 +1363,8 @@
           0.8467268153580663
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000039.npy"
+      "depth_z_path": "gt/depth_z/frame_000039.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000039.npy"
     },
     {
       "frame_id": 40,
@@ -1357,7 +1397,8 @@
           0.8469877627308167
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000040.npy"
+      "depth_z_path": "gt/depth_z/frame_000040.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000040.npy"
     },
     {
       "frame_id": 41,
@@ -1390,7 +1431,8 @@
           0.8472678949339817
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000041.npy"
+      "depth_z_path": "gt/depth_z/frame_000041.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000041.npy"
     },
     {
       "frame_id": 42,
@@ -1423,7 +1465,8 @@
           0.8475671042510982
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000042.npy"
+      "depth_z_path": "gt/depth_z/frame_000042.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000042.npy"
     },
     {
       "frame_id": 43,
@@ -1456,7 +1499,8 @@
           0.8478852214631626
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000043.npy"
+      "depth_z_path": "gt/depth_z/frame_000043.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000043.npy"
     },
     {
       "frame_id": 44,
@@ -1489,7 +1533,8 @@
           0.8482220171619614
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000044.npy"
+      "depth_z_path": "gt/depth_z/frame_000044.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000044.npy"
     },
     {
       "frame_id": 45,
@@ -1522,7 +1567,8 @@
           0.84857720340577
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000045.npy"
+      "depth_z_path": "gt/depth_z/frame_000045.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000045.npy"
     },
     {
       "frame_id": 46,
@@ -1555,7 +1601,8 @@
           0.8489504356770281
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000046.npy"
+      "depth_z_path": "gt/depth_z/frame_000046.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000046.npy"
     },
     {
       "frame_id": 47,
@@ -1588,7 +1635,8 @@
           0.8493413151007665
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000047.npy"
+      "depth_z_path": "gt/depth_z/frame_000047.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000047.npy"
     },
     {
       "frame_id": 48,
@@ -1621,7 +1669,8 @@
           0.8497493908823148
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000048.npy"
+      "depth_z_path": "gt/depth_z/frame_000048.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000048.npy"
     },
     {
       "frame_id": 49,
@@ -1654,7 +1703,8 @@
           0.850174162923126
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000049.npy"
+      "depth_z_path": "gt/depth_z/frame_000049.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000049.npy"
     },
     {
       "frame_id": 50,
@@ -1687,7 +1737,8 @@
           0.8506150845743409
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000050.npy"
+      "depth_z_path": "gt/depth_z/frame_000050.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000050.npy"
     },
     {
       "frame_id": 51,
@@ -1720,7 +1771,8 @@
           0.8510715654889409
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000051.npy"
+      "depth_z_path": "gt/depth_z/frame_000051.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000051.npy"
     },
     {
       "frame_id": 52,
@@ -1753,7 +1805,8 @@
           0.8515429745349234
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000052.npy"
+      "depth_z_path": "gt/depth_z/frame_000052.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000052.npy"
     },
     {
       "frame_id": 53,
@@ -1786,7 +1839,8 @@
           0.8520286427338636
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000053.npy"
+      "depth_z_path": "gt/depth_z/frame_000053.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000053.npy"
     },
     {
       "frame_id": 54,
@@ -1819,7 +1873,8 @@
           0.8525278661914047
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000054.npy"
+      "depth_z_path": "gt/depth_z/frame_000054.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000054.npy"
     },
     {
       "frame_id": 55,
@@ -1852,7 +1907,8 @@
           0.8530399089886483
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000055.npy"
+      "depth_z_path": "gt/depth_z/frame_000055.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000055.npy"
     },
     {
       "frame_id": 56,
@@ -1885,7 +1941,8 @@
           0.8535640060060057
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000056.npy"
+      "depth_z_path": "gt/depth_z/frame_000056.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000056.npy"
     },
     {
       "frame_id": 57,
@@ -1918,7 +1975,8 @@
           0.8540993656538367
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000057.npy"
+      "depth_z_path": "gt/depth_z/frame_000057.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000057.npy"
     },
     {
       "frame_id": 58,
@@ -1951,7 +2009,8 @@
           0.8546451724870551
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000058.npy"
+      "depth_z_path": "gt/depth_z/frame_000058.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000058.npy"
     },
     {
       "frame_id": 59,
@@ -1984,7 +2043,8 @@
           0.8552005896838364
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000059.npy"
+      "depth_z_path": "gt/depth_z/frame_000059.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000059.npy"
     },
     {
       "frame_id": 60,
@@ -2017,7 +2077,8 @@
           0.8557647613715718
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000060.npy"
+      "depth_z_path": "gt/depth_z/frame_000060.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000060.npy"
     },
     {
       "frame_id": 61,
@@ -2050,7 +2111,8 @@
           0.8563368147862606
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000061.npy"
+      "depth_z_path": "gt/depth_z/frame_000061.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000061.npy"
     },
     {
       "frame_id": 62,
@@ -2083,7 +2145,8 @@
           0.8569158622545932
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000062.npy"
+      "depth_z_path": "gt/depth_z/frame_000062.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000062.npy"
     },
     {
       "frame_id": 63,
@@ -2116,7 +2179,8 @@
           0.8575010029910485
         ]
       ],
-      "depth_z_path": "gt/depth_z/frame_000063.npy"
+      "depth_z_path": "gt/depth_z/frame_000063.npy",
+      "depth_z_foreground_path": "gt/depth_z_foreground/frame_000063.npy"
     }
   ]
 }
